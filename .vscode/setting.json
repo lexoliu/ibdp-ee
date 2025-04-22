@@ -1,0 +1,11 @@
+{
+    "latex-workshop.latex.toolchain": [
+        {
+            "command": "tectonic",
+            "args": [
+                "%DOC%"
+            ]
+        }
+    ],
+    "latex-workshop.latex.outDir": "./out"
+}

@@ -1,0 +1,101 @@
+\documentclass{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+\usepackage{booktabs}
+\usepackage{amsmath}
+
+\title{Performance Impact of Garbage Collection in Real-World Applications}
+\author{Lexo Liu}
+
+\begin{document}
+
+\begin{titlepage}
+\centering
+{\huge\bfseries Peformance impact of garbage collector in real-world application\par}
+\vspace{2cm}
+{\large\bfseries How performance characteristics vary in without-GC language and GC-language?\par}
+\vspace{1.5cm}
+{\large Subject: Computer Science\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+This research explores how garbage collector(GC) impacts application performance in real world. As an automatic memory management technology, GC inherently introduces performance overhead. It can significantly affect the overall performance of programs.
+While it’s well-known that Rust (a C++ alternative) outperforms Python, i am curious about how the extent of performance difference caused by garbage collection
+\section{Literature Review}
+In the field of programming language performance, numerous studies have examined the impact of automatic memory management technology. For example, reference counting (RC), and garbage collection(GC).
+
+Garbage collector is more popular than reference counting. Because it can prevent "counting cycle" problem. However, while garbage collector provides us convenience, the overhead of automatic technology can not be ignored.
+
+The runtime environment of programming languages significantly influences their performance characteristics. The following table categorizes four popular programming languages based on their memory management approach and runtime environment:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+Group & Name & Memory Management & Runtime \\
+\midrule
+A & Rust & Manual & Native (AOT) \\
+B & Java & GC & Virtual machine (JIT) \\
+C & Go & GC & Native (AOT) \\
+D & Python & RC+GC & Virtual machine (Interpreter) \\
+\bottomrule
+\end{tabular}
+\caption{Comparison of Programming Languages by Memory Management and Runtime}
+\end{table}
+
+In our experiment, runtime performance should be comparable. Because i need to focus on the performance impact of garbage collector, not the impact of runtime.
+So python was excluded from our experiment due to its relatively slow interpreter.
+Although Java uses a virtual machine, its Just-In-Time (JIT) compilation technology allows it to compile programs into optimized machine code at runtime. So i can assume its performance is comparable to natively compiled languages like Rust and Go.
+
+\section{Methodology}
+The experiment employs two categories of benchmarks inspired by engineering experimental approaches:
+
+\begin{itemize}
+    \item Enhanced benchmarks: Extreme conditions testing specific program bottlenecks (e.g., calculating $\pi$ to $10,000$ bits). These reach program bottlenecks faster, allowing efficient data collection and isolating single variables for more focused research.
+
+    \item Simulated benchmarks: Minimal applications mimicking real-world scenarios (e.g., a web server). These provide insights into how languages perform under complex, realistic workloads.
+\end{itemize}
+
+All benchmarks are implemented from scratch by built-in library of language, ensuring comparable implementations in algorithm. This approach guarantees that the only difference between implementations is the programming language itself.
+
+The benchmarks will run on three platforms to account for architectural differences:
+\begin{itemize}
+    \item Macbook (personal computer)
+    \item Amazon Server (x86 server)
+    \item ESP32 (embedded device)
+\end{itemize}
+
+Performance is measured primarily by execution time, with each benchmark repeated $100$ times for statistical significance. Additionally, flamegraph technology will be used (where available) to identify function-level bottlenecks by analyzing the running time of each function within a program and visualizing the results. Due to hardware limitations, flamegraph analysis will not be available on the ESP32 platform.
+
+To automate the benchmarking process, a Python script was developed that sets up the necessary environment and executes the benchmarks under "/benchmarks/\{language\_name\}". Each folder contains "IO" and "Computing" subfolders with specific benchmarks to measure different performance aspects. For example, to measure I/O performance in Rust, the script executes "/benchmarks/rust/IO/WebServer.rs".
+
+For statistical analysis, we will calculate the mean execution time $\mu$ and standard deviation $\sigma$ using the following formulas:
+
+\begin{equation}
+\mu = \frac{1}{n}\sum_{i=1}^{n} x_i
+\end{equation}
+
+\begin{equation}
+\sigma = \sqrt{\frac{1}{n}\sum_{i=1}^{n} (x_i - \mu)^2}
+\end{equation}
+
+Where $n$ is the number of benchmark runs and $x_i$ is the execution time of the $i$-th run.
+
+Flamegraph technology will be used if available. By analyzing flamegraph result, we can have some new findings by locating the bottleneck function of program.
+
+\section{Results \& Analysis}
+[WIP]
+\section{Discussion}
+[WIP]
+\section{Conclusion}
+[WIP]
+\section{References}
+[WIP]
+\section{Appendices}
+[WIP]
+
+\end{document}
