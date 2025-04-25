@@ -1,9 +1,9 @@
-// Calculate pi
-
 package main
 
 import (
     "fmt"
+    "os"
+    "strconv"
 )
 
 func calculatePi(terms int) float64 {
@@ -19,7 +19,7 @@ func calculatePi(terms int) float64 {
 }
 
 func main() {
-    terms := 1000000
+    terms, _ := strconv.Atoi(os.Args[1])
     pi := calculatePi(terms)
-    fmt.Printf("Estimated Pi: %f\n", pi)
+    fmt.Printf("%.12f\n", pi)
 }

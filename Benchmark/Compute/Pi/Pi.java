@@ -13,8 +13,9 @@ public class Pi {
     }
 
     public static void main(String[] args) {
-        int terms = 1_000_000;
+        int terms = Integer.parseInt(args[0]);
+
         double pi = calculatePi(terms);
-        System.out.printf("Estimated Pi: %f\n", pi);
+        System.out.printf("%.12f\n", pi);
     }
 }

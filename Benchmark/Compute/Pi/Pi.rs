@@ -1,3 +1,5 @@
+use std::env;
+
 fn calculate_pi(terms: usize) -> f64 {
     let mut pi = 0.0;
     for k in 0..terms {
@@ -11,7 +13,9 @@ fn calculate_pi(terms: usize) -> f64 {
 }
 
 fn main() {
-    let terms = 1_000_000;
+    let args: Vec<String> = env::args().collect();
+    assert!(args.len() == 2, "Usage: pi <terms>");
+    let terms = args[1].parse::<usize>().expect("Invalid integer");
     let pi = calculate_pi(terms);
-    println!("Estimated Pi: {}", pi);
+    println!("{:.12}", pi);
 }

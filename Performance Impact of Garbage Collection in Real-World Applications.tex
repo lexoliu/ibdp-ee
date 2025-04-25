@@ -52,6 +52,15 @@ So python was excluded from our experiment due to its relatively slow interprete
 Although Java uses a virtual machine, its Just-In-Time (JIT) compilation technology allows it to compile programs into optimized machine code at runtime. So i can assume its performance is comparable to natively compiled languages like Rust and Go.
 
 \section{Methodology}
+\subsection{Enhanced Test Configuration}
+To ensure fairness and robustness, the benchmark script now supports:
+\begin{itemize}
+  \item \textbf{Warmup Runs}: using \verb|--warmup N| to discard the first N compute runs, eliminating JIT or GC initialization overhead.
+  \item \textbf{I/O Concurrency}: using \verb|--io-concurrency C| to spawn C parallel processes during I/O tests, simulating real-world concurrent workloads.
+  \item \textbf{Repeat Runs}: using \verb|--repeat R| to execute each test R times and report mean and standard deviation.
+  \item \textbf{Selective Profiling}: using \verb|--profile| to generate flamegraphs via \texttt{perf} or \texttt{dtrace} only when needed, separating profiling overhead from pure timing measurements.
+\end{itemize}
+
 The experiment employs two categories of benchmarks inspired by engineering experimental approaches:
 
 \begin{itemize}
