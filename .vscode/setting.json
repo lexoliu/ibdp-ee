@@ -1,11 +1,21 @@
 {
-    "latex-workshop.latex.toolchain": [
+    "latex-workshop.latex.recipes": [
         {
-            "command": "tectonic",
-            "args": [
-                "%DOC%"
+            "name": "tectonic",
+            "tools": [
+                "tectonic"
             ]
         }
     ],
-    "latex-workshop.latex.outDir": "./out"
+    "latex-workshop.latex.tools": [
+        {
+            "name": "tectonic",
+            "command": "tectonic",
+            "args": [
+                "%DOC%.tex"
+            ]
+        }
+    ],
+    "latex-workshop.latex.autoBuild.run": "onSave",
+    "latex-workshop.view.pdf.viewer": "tab"
 }

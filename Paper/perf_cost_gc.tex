@@ -1,0 +1,45 @@
+Automatic memory management, particularly garbage collection (GC), offers substantial benefits in programming safety and developer productivity. However, these benefits come with runtime costs that may impact application performance. This section outlines the theoretical and practical implications of GC overhead, setting the stage for the empirical evaluation in later sections.
+
+\subsection{Theoretical Performance Implications}
+
+Garbage collection introduces several performance challenges, including:
+
+\begin{itemize}
+    \item \textbf{Stop-the-world pauses}: Some GC implementations temporarily suspend program execution to safely traverse and reclaim memory, leading to latency spikes.
+    \item \textbf{Memory overhead}: GC systems require additional memory space to operate efficiently, often keeping a larger heap to delay collection cycles.
+    \item \textbf{CPU consumption}: Collector threads consume CPU cycles that could otherwise be used for application logic.
+    \item \textbf{Cache pollution}: Traversing large object graphs during GC can evict useful application data from CPU caches, reducing subsequent performance.
+\end{itemize}
+
+While modern GC systems (e.g., Go's concurrent GC, Java's G1/ZGC) aim to reduce these effects, they remain workload-dependent and sometimes unpredictable.
+
+\subsection{Practical Challenges in Benchmarking GC Overhead}
+
+In contrast to manual memory management, which incurs explicit costs controlled by the programmer, garbage collection operates implicitly at runtime. This presents several challenges for performance evaluation:
+
+\begin{itemize}
+    \item \textbf{Non-determinism}: GC may occur at different times in different runs, depending on allocation patterns and heap state.
+    \item \textbf{Invisibility}: Without proper instrumentation, it is difficult to observe GC pauses or identify whether a performance issue is GC-related.
+    \item \textbf{Runtime interaction}: GC behavior can interact with I/O latency, thread scheduling, and operating system memory pressure in subtle ways.
+\end{itemize}
+
+\subsection{Research Questions}
+
+To understand the real-world performance impact of GC, this study focuses on the following questions:
+
+\begin{itemize}
+    \item How significant is the performance overhead of garbage collection in compute-intensive and I/O-intensive applications?
+    \item Under what conditions does GC introduce measurable delays or throughput degradation?
+    \item How does the performance of a GC-enabled language (Go) compare to a manually managed language (Rust) under controlled workloads?
+    \item Can garbage collection be considered “nearly free” in certain practical scenarios?
+\end{itemize}
+
+\subsection{Experimental Hypothesis}
+
+We hypothesize that:
+
+\begin{quote}
+    \emph{In real-world compute workloads with limited dynamic memory allocation, the performance overhead introduced by garbage collection is negligible when compared to manual memory management.}
+\end{quote}
+
+This hypothesis will be tested through empirical benchmarks comparing algorithmically equivalent programs in Go and Rust, with controlled allocation patterns and repeatable execution environments.

@@ -1,0 +1,18 @@
+
+\subsection{Benchmark Types and Design Philosophy}
+
+The experiment employs two categories of benchmarks inspired by engineering experimental approaches:
+
+\begin{itemize}
+    \item \textbf{Micro-benchmarks (Compute-bound)}: These tests focus on specific computational algorithms implemented identically across languages (e.g., calculating Fibonacci numbers iteratively/recursively, matrix multiplication, Pi computation ). They are designed to stress CPU and memory subsystems under controlled conditions, making it easier to observe the direct impact of language runtime and GC on raw computation speed.
+    \item \textbf{Simulated Workloads (I/O-bound / Mixed)}: These benchmarks aim to mimic aspects of real-world applications, involving both computation and significant I/O operations (e.g., reading/writing large files, simulating basic web server request handling ). They provide insights into performance under more complex, less predictable conditions where factors like I/O latency, concurrency, and GC behavior during idle or busy periods interact.
+\end{itemize}
+This dual approach allows for both focused analysis of specific performance aspects (computation, memory allocation frequency) and evaluation under more holistic, application-relevant scenarios.
+
+\subsection{Implementation Strategy}
+
+All benchmark algorithms are implemented from scratch within the respective language subdirectories (e.g., `Compute/FibonacciLoop/FibonacciLoop.go`, `Compute/FibonacciLoop/FibonacciLoop.rs`, etc.). Crucially, only the standard libraries native to each language (Go standard library, Rust std, Java standard libraries) are utilized. This constraint minimizes the influence of third-party library performance differences and ensures that the core comparison centers on the language's runtime, compiler, and memory management strategy (manual vs. GC). The algorithmic logic for each benchmark task is kept identical across language implementations.
+
+\subsection{Testing Platforms} % Combined with section 5.5
+
+The benchmarks are executed on the three distinct platforms previously mentioned (Macbook, x86 Server, ESP32) to analyze performance across varying hardware capabilities, including CPU architecture, core count, memory size, and speed. This helps determine if the relative performance characteristics and GC impact observed are consistent or platform-dependent.

@@ -1,0 +1,166 @@
+\documentclass{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{capt-of}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2
+}
+\lstset{style=mystyle}
+
+% Style for shell scripts
+\lstdefinestyle{shstyle}{
+    language=bash,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{blue},
+    commentstyle=\color{codegreen},
+    stringstyle=\color{codepurple},
+    backgroundcolor=\color{backcolour},
+    showstringspaces=false,
+    numbers=left,
+    numberstyle=\tiny\color{codegray},
+    numbersep=5pt,
+    breaklines=true,
+    captionpos=b,
+}
+
+% Style for Python
+\lstdefinestyle{pythonstyle}{
+    language=Python,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{blue},
+    commentstyle=\color{codegreen},
+    stringstyle=\color{codepurple},
+    backgroundcolor=\color{backcolour},
+    morekeywords={*,plt,pd,sys,os,re}, % Add common library names if needed
+    showstringspaces=false,
+    numbers=left,
+    numberstyle=\tiny\color{codegray},
+    numbersep=5pt,
+    breaklines=true,
+    captionpos=b,
+}
+% --- End Code Listing Styles ---
+
+
+\title{Performance Impact of Garbage Collection in Real-World Applications}
+\author{Lexo Liu}
+
+\begin{document}
+
+\begin{titlepage}
+\centering
+{\huge\bfseries Performance Impact of Garbage Collection in Real-World Applications\par}
+\vspace{2cm}
+{\large\bfseries How do performance characteristics vary between GC and non-GC languages?\par}
+\vspace{1.5cm}
+{\large Subject: Computer Science\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+
+\section{Introduction}
+\input{intro.tex}
+
+\section{Dynamic Memory Management: Evolution from Manual to Automatic}
+\input{memory_models.tex}
+
+\section{The Performance Cost of Automatic Memory Management}
+\input{perf_cost_gc.tex}
+
+\section{Literature Review}
+\subsection{Language Selection}
+Initially, Java, Rust, and Go were selected to represent different memory management strategies: manual (Rust), garbage-collected (Go), and virtual machine-based GC (Java). However, benchmark results revealed that Java suffered severe performance degradation in short-lived compute tasks due to JVM warmup overhead and uncontrollable GC behavior.
+
+Despite multiple warmup attempts, Java's performance was over 10x worse than Go or Rust in compute benchmarks (see Figure~\ref{fig:fib_java}). Due to these confounding variables, Java was excluded from the final analysis to ensure a fair and focused comparison between two compiled languages: Rust and Go.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+Language & Memory Management & Compilation Model \\
+\midrule
+Rust     & Manual             & Native (AOT) \\
+Go       & Garbage Collected  & Native (AOT) \\
+\bottomrule
+\end{tabular}
+\caption{Languages selected for final comparison}
+\end{table}
+
+\section{Experimental Framework}
+\input{experimental_framework.tex}
+
+\section{Methodology}
+\input{methodology.tex}
+
+\section{Results \& Analysis}
+\subsection{Benchmark 1: Pi Computation}
+\includegraphics[width=0.5\textwidth]{../Benchmark/Compute/Pi/benchmark_Pi.png}
+\captionof{figure}{Execution time for Pi computation (1,000,000 iterations)}
+Rust completed the task in 3.2 ms and Go in 3.8 ms. Despite Rust's use of LLVM and manual memory, Go's GC overhead remained negligible in this compute-heavy task.
+
+\subsection{Benchmark 2: Fibonacci Loop}
+\includegraphics[width=0.5\textwidth]{../Benchmark/Compute/FibonacciLoop/benchmark_FibonacciLoop.png}
+\captionof{figure}{Iterative Fibonacci computation: Rust vs Go vs Java}
+Rust and Go completed in under 9 ms, whereas Java took nearly 58 ms, motivating its removal from further analysis.
+
+\subsection{Benchmark 3: Recursive Fibonacci}
+\includegraphics[width=0.5\textwidth]{../Benchmark/Compute/FibonacciRecursive/benchmark_FibonacciRecursive.png}
+\captionof{figure}{Recursive Fibonacci: Rust vs Go vs Java}
+Again, Rust and Go performed closely (within 1 ms), showing consistent parity in CPU-bound workloads.
+
+\subsection{Findings Summary}
+These results challenge assumptions that garbage collection inherently causes significant slowdowns. In compute-dense workloads with minimal heap allocation, Go performs nearly as well as Rust.
+
+\section{Discussion}
+While Rust's compile-time memory guarantees and zero-cost abstractions make it ideal for predictable performance, Go demonstrates that well-engineered garbage collectors can remain competitive, especially when memory pressure is low. The marginal performance difference suggests that memory management strategy is only one factor among many, including runtime design, compiler optimizations, and allocation patterns.
+
+In real-world compute tasks, GC-induced pauses are less significant than expected, especially when allocation rates are low. This finding aligns with Go's design philosophy, which encourages allocation-free code for performance-sensitive sections.
+
+\section{Conclusion}
+This research evaluated the performance trade-offs between garbage-collected (Go) and manually-managed (Rust) languages using real-world compute benchmarks. The experimental evidence suggests that:
+
+\begin{itemize}
+  \item Garbage collection overhead is negligible in compute-intensive scenarios with low allocation frequency
+  \item Rust offers better theoretical control but does not always yield drastic performance gains
+  \item Go provides sufficient performance for many real-world tasks, simplifying development without major cost
+\end{itemize}
+
+Future work may extend to IO-bound and concurrency-heavy scenarios, where memory pressure and GC activity are more variable.
+
+\section{References}
+% Use BibTeX or manual references in APA style
+
+\section{Appendices}
+% Benchmark data tables, additional charts, scripts
+
+\end{document}

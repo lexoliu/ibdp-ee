@@ -1,0 +1,284 @@
+\subsection{The Challenge of Manual Memory Management}
+
+In the early days of programming, memory management was entirely manual. Languages such as C and C++ required programmers to explicitly control memory allocation and deallocation, providing precise control over system resources at the cost of increased development complexity. This manual approach requires programmers to allocate memory explicitly (using functions like \texttt{malloc} in C) and later free that memory when it is no longer needed (using \texttt{free}).
+
+While manual memory management offers fine-grained control and potentially optimal performance, it introduces significant risks:
+
+\begin{itemize}
+    \item \textbf{Memory leaks} occur when allocated memory is never freed, gradually depleting available system resources.
+    \item \textbf{Dangling pointers} arise when a program accesses memory that has already been freed, causing unpredictable behavior.
+    \item \textbf{Double frees} happen when memory is deallocated multiple times, potentially corrupting memory management data structures.
+    \item \textbf{Buffer overflows} result from writing beyond allocated memory boundaries, creating security vulnerabilities.
+\end{itemize}
+
+The prevalence of these errors in production software has driven the evolution toward safer memory management alternatives.
+
+\subsubsection*{Manual Memory Management Examples in C}
+
+\begin{lstlisting}[language=C, caption=Memory Leak Example, style=mystyle]
+#include <stdlib.h>
+
+void memory_leak() {
+    int* data = (int*) malloc(100 * sizeof(int));
+    // Function ends without freeing 'data'
+    // This memory remains allocated but inaccessible
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=C, caption=Dangling Pointer Example, style=mystyle]
+#include <stdlib.h>
+#include <stdio.h>
+
+void dangling_pointer() {
+    int* data = (int*) malloc(sizeof(int));
+    *data = 42;
+    free(data);
+    // 'data' now points to invalid memory
+    printf("%d\n", *data);  // Undefined behavior!
+}
+\end{lstlisting}
+
+\subsection{The Evolution to Automatic Memory Management}
+
+As software systems grew in complexity, the burden of manual memory management became increasingly problematic. This led to the development of automatic memory management techniques that could reliably handle memory allocation and deallocation without programmer intervention. Two primary approaches emerged: reference counting and tracing garbage collection.
+
+\subsubsection{Reference Counting: A First Step}
+
+Reference counting represents an intermediate step between manual and fully automatic memory management. In this approach, each allocated object maintains a counter that tracks how many references point to it:
+
+\begin{itemize}
+    \item When a new reference to an object is created, its reference count increments.
+    \item When a reference is removed, the count decrements.
+    \item When the count reaches zero, the object is automatically deallocated.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption=Reference Counting Concept, style=pythonstyle]
+def create_reference(obj):
+    obj.ref_count += 1
+
+def remove_reference(obj):
+    obj.ref_count -= 1
+    if obj.ref_count == 0:
+        # Object has no more references
+        for child in obj.references:
+            remove_reference(child)  # Decrement children
+        free(obj)  # Deallocate the object
+\end{lstlisting}
+
+While reference counting immediately reclaims memory when objects become unreachable and distributes collection overhead throughout program execution, it has a critical limitation: it cannot detect cyclic references.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  every node/.style={circle, draw, minimum size=1.2cm},
+  node distance=2.5cm,
+  arrow/.style={->, thick}
+]
+\node (A) {A: 1};
+\node (B) [right=of A] {B: 1};
+
+\draw[arrow] (A) -- (B) node[midway, above, draw=none] {};
+\draw[arrow] (B) to [bend left=30] (A) node[midway, below, draw=none] {};
+
+\node[draw=none] at (0,-2) {Even though neither A nor B is reachable from};
+\node[draw=none] at (0,-2.5) {program roots, their reference counts remain at 1.};
+\end{tikzpicture}
+\caption{The cyclic reference problem: Objects A and B reference each other but are unreachable from program roots. Reference counting alone cannot detect this situation.}
+\label{fig:cyclic_refs}
+\end{figure}
+
+As shown in Figure \ref{fig:cyclic_refs}, when objects form reference cycles, they may maintain non-zero reference counts even when the entire cycle is unreachable from the rest of the program. This results in memory leaks, undermining one of the primary benefits of automatic memory management.
+
+\subsection{Tracing Garbage Collection: A Comprehensive Solution}
+
+To address the limitations of reference counting, tracing garbage collection was developed based on a fundamentally different principle: \textbf{reachability analysis}. Rather than tracking individual references, tracing collectors determine whether objects are reachable from a set of root references within the program.
+
+\subsubsection{Reachability Analysis: The Foundation of Modern GC}
+
+In reachability analysis, memory can be modeled as a directed graph where:
+\begin{itemize}
+    \item Nodes represent allocated objects
+    \item Edges represent references between objects
+    \item Special nodes called "roots" represent references directly accessible to the program (e.g., global variables, stack variables, and registers)
+\end{itemize}
+
+The key insight of reachability analysis is that an object is "live" (still needed) if and only if it is reachable by following a path of references from any root. Conversely, any object that cannot be reached from the roots is definitionally unreachable by the program and can safely be reclaimed.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  every node/.style={circle, draw, minimum size=1.2cm},
+  node distance=2.2cm and 2.5cm,
+  arrow/.style={->, thick},
+  reachable/.style={fill=gray!20},
+  unreachable/.style={fill=red!15}
+]
+
+\node[reachable] (root) {Root};
+\node[reachable] (A) [right=of root] {A};
+\node[reachable] (B) [below=of A] {B};
+\node[reachable] (C) [right=of A] {C};
+\node[reachable] (D) [below=of C] {D};
+\node[unreachable] (E) [right=of D] {E};
+\node[unreachable] (F) [right=of C] {F};
+
+\draw[arrow] (root) -- (A);
+\draw[arrow] (A) -- (B);
+\draw[arrow] (A) -- (C);
+\draw[arrow] (C) -- (D);
+\draw[arrow] (E) -- (F);
+\draw[arrow] (F) -- (E);
+
+\end{tikzpicture}
+\caption{Reachability analysis in garbage collection. Objects E and F form a cycle but are unreachable from any root, making them eligible for collection despite their mutual references.}
+\label{fig:reachability}
+\end{figure}
+
+As illustrated in Figure \ref{fig:reachability}, reachability analysis elegantly solves the cyclic reference problem. Even though objects E and F reference each other (maintaining non-zero reference counts), they are unreachable from any root and therefore eligible for collection.
+
+\subsubsection{Mark-and-Sweep: The Archetypal Tracing Algorithm}
+
+The most fundamental tracing garbage collection algorithm is Mark-and-Sweep, which operates in two distinct phases:
+
+\begin{itemize}
+    \item \textbf{Mark Phase}: Starting from all roots, traverse the object graph and mark every object encountered as "reachable."
+    \item \textbf{Sweep Phase}: Scan the entire heap and reclaim any unmarked objects, as they cannot be reached from the roots.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption=Mark-and-Sweep Algorithm, style=pythonstyle]
+def mark_and_sweep():
+    # Mark phase
+    for root in program_roots:
+        mark(root)
+    
+    # Sweep phase
+    for object in heap:
+        if not object.is_marked:
+            free(object)  # Object is unreachable, reclaim it
+        else:
+            object.is_marked = False  # Reset for next collection
+
+def mark(object):
+    if object is None or object.is_marked:
+        return  # Already marked or null reference
+    
+    object.is_marked = True  # Mark as reachable
+    
+    # Recursively mark all referenced objects
+    for reference in object.references:
+        mark(reference)
+\end{lstlisting}
+
+The mark-and-sweep approach provides several advantages:
+\begin{itemize}
+    \item It correctly identifies and collects cyclic garbage
+    \item It guarantees that all unreachable objects will be reclaimed
+    \item It can be implemented efficiently with various optimizations
+\end{itemize}
+
+
+
+\subsection{Trade-offs in Memory Management}
+
+Each memory management approach represents a different balance of advantages and limitations:
+
+\begin{center}
+\begin{tabular}{|p{3cm}|p{5cm}|p{5cm}|}
+\hline
+\textbf{Approach} & \textbf{Advantages} & \textbf{Limitations} \\
+\hline
+Manual Management & Precise control, potentially optimal performance, predictable timing & Error-prone, development burden, security risks \\
+\hline
+Reference Counting & Immediate reclamation, predictable, no tracing pauses & Cannot collect cycles, runtime overhead, cascading deallocations \\
+\hline
+Tracing Collection & Handles cyclic structures, complete collection, optimization opportunities & Collection pauses, higher memory requirements, less predictable \\
+\hline
+\end{tabular}
+\end{center}
+
+The evolution of memory management reflects the growing complexity of software systems and the need to balance performance with reliability and development productivity. Modern programming languages select their memory management strategy based on their intended use cases, with systems programming languages often favoring manual control, while application-oriented languages prioritize safety and developer productivity through sophisticated garbage collection implementations.
+
+\section{The Performance Cost of Automatic Memory Management}
+
+Automatic memory management algorithms, particularly garbage collection (GC), offer significant benefits in terms of safety and developer convenience. However, these benefits do not come without cost. The underlying algorithms consume computational resources—CPU time, memory bandwidth, and cache space—potentially impacting the performance of real-world applications. Although the existence of this overhead is widely acknowledged, its precise nature and scale remain unclear, especially in real execution environments. For instance, how often does GC interrupt normal program execution? Does GC primarily affect CPU-bound or memory-bound tasks? How do different language runtimes manage these costs? 
+
+\subsection{Theoretical Performance Implications}
+
+From a theoretical perspective, garbage collection introduces several performance considerations:
+
+\begin{itemize}
+    \item \textbf{Stop-the-world pauses}: Traditional GC algorithms may temporarily halt program execution during collection phases, introducing latency spikes.
+    \item \textbf{Memory overhead}: GC systems typically require more memory than manual management to operate efficiently, as they need space for bookkeeping and to amortize collection costs.
+    \item \textbf{CPU overhead}: The collector consumes CPU cycles that could otherwise be used by the application logic.
+    \item \textbf{Cache pollution}: GC operations may displace application data from CPU caches, affecting subsequent performance.
+\end{itemize}
+
+\subsection{Research Gap and Questions}
+
+Unlike manual memory management, whose performance cost is explicit and programmer-controlled, garbage collection introduces \textbf{hidden and runtime-determined behavior}. This makes its performance impact inherently harder to reason about and quantify. To systematically understand the performance implications of automatic memory management, we pose the following research question:
+
+\begin{quote}
+    \emph{In real-world applications, how does garbage collection impact the runtime performance compared to manual memory management? }
+\end{quote}
+
+More specifically, we seek to answer:
+
+\begin{itemize}
+    \item How significant is the performance overhead of garbage collection in different types of applications? 
+    \item Which workload characteristics amplify or mitigate the performance impact of garbage collection? 
+    \item How do different garbage collection implementations compare in terms of performance impact? 
+    \item Can application design patterns reduce garbage collection overhead without sacrificing the safety benefits? 
+\end{itemize}
+
+\subsection{Experimental Approach}
+
+To investigate these questions, we propose to construct controlled benchmark environments where the same algorithmic logic is implemented in both GC-based and non-GC languages (e.g., Java vs. Rust, Go vs. C). We will design experiments for both CPU-bound and IO-bound workloads, and measure key metrics such as:
+
+\begin{itemize}
+    \item Total runtime and throughput 
+    \item CPU usage patterns over time 
+    \item Pause times and latency spikes (for GC) 
+    \item Memory consumption and allocation frequency 
+\end{itemize}
+
+These experiments will allow us to observe the actual cost—if any—introduced by automatic memory management in practical scenarios, rather than relying on theoretical or synthetic benchmarks alone.
+
+\subsection{Significance of This Research}
+
+Understanding the hidden cost of convenience is essential not only for systems programmers but also for application developers who build latency-sensitive software (e.g., games, servers, real-time systems). As GC becomes increasingly optimized and integrated into mainstream languages, it is crucial to distinguish between actual inefficiencies and outdated assumptions. The findings from this research will provide evidence-based guidance for:
+
+\begin{itemize}
+    \item Language selection for performance-critical applications 
+    \item Memory management design patterns that work well with garbage collection 
+    \item Identifying scenarios where manual memory management remains advantageous 
+    \item Understanding the performance implications of different garbage collection algorithms and configurations 
+\end{itemize}
+
+\section{Literature Review}
+
+\subsection{Research Focus and Language Selection}
+
+For our experimental investigation, we need to compare languages with similar runtime performance characteristics to isolate the impact of garbage collection. Based on this requirement:
+
+\begin{itemize}
+    \item Python was excluded from our experiment due to its relatively slow interpreter, which would introduce confounding variables.
+    \item Although Java uses a virtual machine, its Just-In-Time (JIT) compilation technology allows it to compile programs into optimized machine code at runtime. This makes its performance potentially comparable to natively compiled languages like Rust and Go.
+    \item Rust (manual memory management) and Go (garbage collection) both use Ahead-Of-Time (AOT) compilation, making them excellent candidates for direct comparison.
+\end{itemize}
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{@{}llll@{}}
+  \toprule
+  Group & Language & Memory Management & Runtime \\
+  \midrule
+  A & Rust & Manual & Native (AOT) \\
+  B & Java & GC & Virtual machine (JIT) \\
+  C & Go & GC & Native (AOT) \\
+  D & Python & RC+GC & Virtual machine (Interpreter) \\
+  \bottomrule
+  \end{tabular}
+  \caption{Comparison of Programming Languages by Memory Management and Runtime }
+  \end{table}
+
+This selection allows us to focus specifically on the performance impact of garbage collection rather than differences in runtime environments or compilation strategies.
