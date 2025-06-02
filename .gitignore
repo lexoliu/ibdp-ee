@@ -1,3 +1,7 @@
 .venv
 .ropeproject
 .DS_Store
+/Benchmark/*/*/target/
+*.blg
+*.log
+*.gz

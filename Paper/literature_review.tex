@@ -1,0 +1,51 @@
+\subsection{Research Focus and Language Selection}
+
+For our experimental investigation, we need to compare languages with similar runtime performance characteristics to isolate the impact of garbage collection. Based on this requirement:
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{@{}llll@{}}
+  \toprule
+  Group & Language & Memory Management & Runtime \\
+  \midrule
+  A & Rust & Manual & Native (AOT) \\
+  B & Java & GC & Virtual machine (JIT) \\
+  C & Go & GC & Native (AOT) \\
+  D & Python & RC+GC & Virtual machine (Interpreter) \\
+  \bottomrule
+  \end{tabular}
+  \caption{Comparison of Programming Languages by Memory Management and Runtime }
+  \end{table}
+
+This selection allows us to focus specifically on the performance impact of garbage collection rather than differences in runtime environments or compilation strategies.
+
+
+\begin{itemize}
+    \item Python was excluded from our experiment due to its relatively slow interpreter, which would introduce confounding variables.
+    \item Initially Java is considered because I think its JIT(Just-in-time) techonology could provide a closed performance with native language like Rust and Go. The scene that Java has been widely used in web server and mobile phone (Android) also give this illusion. But the later experiment prove that I am wrong. (See \ref{fig:fibonacci-benchmark})  
+    \item Rust (manual memory management) and Go (garbage collection) both use Ahead-Of-Time (AOT) compilation, making them excellent candidates for direct comparison.
+\end{itemize}
+
+While modern GC systems (e.g., Go's concurrent GC, Java's G1/ZGC) aim to reduce these effects, they remain workload-dependent and sometimes unpredictable.
+
+\subsection{Practical Challenges in Benchmarking GC Overhead}
+
+In contrast to manual memory management, which incurs explicit costs controlled by the programmer, garbage collection operates implicitly at runtime. This presents several challenges for performance evaluation:
+
+\begin{itemize}
+    \item \textbf{Non-determinism}: GC may occur at different times in different runs, depending on allocation patterns and heap state.
+    \item \textbf{Invisibility}: Without proper instrumentation, it is difficult to observe GC pauses or identify whether a performance issue is GC-related.
+    \item \textbf{Runtime interaction}: GC behavior can interact with I/O latency, thread scheduling, and operating system memory pressure in subtle ways.
+\end{itemize}
+
+For the detail of our experiment design, see \ref{sec:methodology}
+
+\subsection{Experimental Hypothesis}
+
+We hypothesize that:
+
+\begin{quote}
+    \emph{In real-world compute workloads with limited dynamic memory allocation, the performance overhead introduced by garbage collection is negligible when compared to manual memory management.}
+\end{quote}
+
+This hypothesis will be tested through empirical benchmarks comparing algorithmically equivalent programs in Go and Rust, with controlled allocation patterns and repeatable execution environments.
