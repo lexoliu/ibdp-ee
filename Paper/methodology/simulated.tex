@@ -1,10 +1,10 @@
-\subsection{Motivation and Rationale}
+\subsubsection{Motivation and Rationale}
 
 Traditional micro-benchmark endpoints such as \verb|/echo| or static file serving, while useful for isolating baseline latency and throughput, fail to capture the complexity of real web applications. They lack multi-layered object graphs, state retention, and lifecycle diversity of heap allocations. Therefore, we constructed a web service that mimics the behavior of a personal blog---a system both relevant to user experience and computationally meaningful.
 
 Our benchmark design reflects typical patterns in modern backend systems, including nested JSON parsing, user-driven data lookup, HTML generation, and concurrent access. These features are essential to invoke significant GC activity and observe how different runtimes handle allocation pressure and pause times.
 
-\subsection{System Architecture Overview}
+\subsubsection{System Architecture Overview}
 
 The benchmark system exposes the following endpoints:
 
@@ -17,13 +17,13 @@ The benchmark system exposes the following endpoints:
 
 Internally, the service maintains an in-memory store of all blog posts and comments. Each post includes a nested structure of author, tags, paragraphs, and potentially hundreds of comment objects. Template rendering dynamically generates output strings based on article and user data, placing sustained pressure on heap allocators.
 
-\subsection{Controlling Complexity and Load}
+\subsubsection{Controlling Complexity and Load}
 
 To simulate different load scenarios, each endpoint supports parameters such as post size (number of paragraphs), comment count, and output mode. JSON responses induce large allocation graphs that stress deserialization performance, while HTML rendering consumes additional heap space through string formatting.
 
 Testing tools such as \texttt{wrk} and custom Lua scripts were used to emulate concurrent traffic, controlling request rate and body structure. By adjusting concurrency level, object size, and access patterns, we are able to isolate language-level memory management effects.
 
-\subsection{Experimental Role of the Platform}
+\subsubsection{Experimental Role of the Platform}
 
 This blogging system serves a dual role: it acts as both a realistic benchmark generator and a repeatable experimental platform. Unlike synthetic tests, it allows us to measure end-to-end performance including request parsing, business logic, memory pressure, and response generation.
 

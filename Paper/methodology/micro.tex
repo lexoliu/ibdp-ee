@@ -1,0 +1,21 @@
+\subsubsection{Overview of micro test}
+Micro test is aimed to measure a chunk fo equivalent code segment between different language, to 
+
+To minimum the influence of environment and focus on the effect of garbage collector itself. Following points should be focused.
+
+\begin{itemize}
+    \item \textbf{Equivalent implementation}: All micro test are implemented from scratch, their code has totally same logic and algorithm, and third-party library usage is highly limitted. To make sure that the performance difference can only be caused by language and its garbage collector(if exists) itself.
+    \item \textbf{Multi-platform}: Micro test must be replicated in different platform. To reduce the influence of platform features.
+    \item \textbf{Automatic}: Micro test must be completed automatic, completing all steps by Python script. To minimum the influence of artificial mistake.
+\end{itemize}
+
+
+\subsubsection{Programs}
+\begin{enumerate}
+  \item \textbf{Fibonacci} — An iterative implementation of the Fibonacci sequence to test integer arithmetic throughput and loop execution efficiency.
+  \item \textbf{Pi} — A Monte Carlo simulation to approximate the value of Pi, focusing on floating-point computation and pseudo-random number generation.
+  \item \textbf{Matrix} — Dense matrix multiplication using nested loops to stress test memory allocation, cache usage, and raw arithmetic performance.
+\end{enumerate}
+
+Each of these micro benchmarks isolates a specific type of workload — iterative integer computation, probabilistic floating-point simulation, and linear algebra respectively — allowing for detailed performance comparisons across languages with and without garbage collection.
+

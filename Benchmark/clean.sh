@@ -9,4 +9,7 @@ find . -type f \( -name 'Rust_*' -o -name 'Go_*' -o -name '*.class' \) | while r
   fi
 done
 
+cd "./WebServer/rust"
+cargo clean
+
 echo "[✓] Cleanup complete."
