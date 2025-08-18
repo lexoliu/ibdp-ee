@@ -1,0 +1,48 @@
+\subsection{Randomization and Crossover Design}
+
+\subsubsection{Cross-Language Crossover (Within-Subject)}
+For each (W, L, C, S) configuration: run both languages (T) in random order, with warmup 30-60s → steady state 120-180s → overload 60s; 60s wash-out between runs (memory release, cache cooling).
+
+\subsubsection{Blocking and Latin Square}
+Divide all configurations into blocks (e.g., by task tier/day), use Latin square arrangement within blocks to mitigate temperature/noise/NUMA bias.
+
+\subsubsection{Sample Size (Power Analysis)}
+Based on pilot standard deviation estimates: for primary metrics (p95), with δ=10\%, α=0.05, power=0.8, minimum N≥20 repetitions per configuration. C0 (negative control) uses equivalence testing (expect "equivalence holds").
+
+\subsection{Load Generation and Measurement}
+
+\subsubsection{Load Generation}
+\begin{itemize}
+    \item \textbf{Closed-loop load:} Fixed concurrency with "request completion before next" rhythm for stable tail latency observation
+    \item \textbf{RPS gradient:} Based on pilot determination of 3 steady points (40\%/70\%/90-95\% saturation), record queueing/timeout threshold (inflection point)
+\end{itemize}
+
+\subsubsection{Instrumentation}
+\begin{itemize}
+    \item \textbf{System:} perf stat/record (cycles, instructions, cache-misses, branches), pidstat, numastat
+    \item \textbf{Language-specific:} Go pprof/runtime/metrics; Java JFR/GC logs; Rust heaptrack and jemalloc/tcmalloc sampling (if enabled)
+\end{itemize}
+
+\subsection{Statistical Analysis Plan}
+
+\subsubsection{Primary Testing}
+\begin{itemize}
+    \item \textbf{C0 Equivalence (TOST):} Validate "GC and non-GC equivalent" within δ=±10\% (latency) and ±7\% (throughput)
+    \item \textbf{Micro/Meso/Macro Comparison:}
+    \begin{itemize}
+        \item Mann-Whitney U test (non-parametric robust)
+        \item Effect size: Cliff's delta + 95\% BCa bootstrap CI
+        \item Multiple comparison: Benjamini-Hochberg FDR control
+        \item Mixed-effects model: run batches as random effects, fixed effects include T (language), L (load), S (allocation), C (concurrency) and interactions
+    \end{itemize}
+\end{itemize}
+
+\subsubsection{Engineering Significance and Interval Reporting}
+For each primary metric, report relative difference (\%) + 95\% CI and whether exceeding δ threshold; provide conclusion labels: better/worse/equivalent/uncertain.
+
+\subsubsection{Robustness Testing}
+\begin{itemize}
+    \item \textbf{Allocation strategy ablation (S):} Enable arena/pooling on non-GC side; suppress escape/increase stack allocation on GC side (where possible)
+    \item \textbf{GC parameter sweep:} Go (GOGC=50/100/150), Java (G1 vs ZGC; -Xms=-Xmx vs adaptive)
+    \item \textbf{Framework equivalence:} Replace equivalent libraries (e.g., JSON/template two library sets) to verify trend stability
+\end{itemize}

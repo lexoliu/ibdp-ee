@@ -2,50 +2,56 @@
 
 set -e
 
-if [ $# -ne 1 ]; then
-  echo "Usage: ./run.sh [rust|go|java]"
-  exit 1
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+cd "$SCRIPT_DIR"
+
+LANG=$1
+PORT=${2:-"auto"}
+
+if [ -z "$LANG" ]; then
+    echo "Usage: $0 <language> [port]"
+    echo "  language: rust, go, java, python"
+    echo "  port: auto assigns default ports (8080, 8081, 8082, 8083)"
+    echo "        or specify custom port"
+    exit 1
 fi
 
-LANGUAGE="$1"
-TASK_DIR=$(pwd)
-TASK_NAME=$(basename "$TASK_DIR")
-CAP_TASK=$(echo "$TASK_NAME" | sed -E 's/(^|_)([a-z])/\U\2/g')
+# Auto-assign ports if not specified
+if [ "$PORT" = "auto" ]; then
+    case $LANG in
+        rust) PORT=8080 ;;
+        go) PORT=8081 ;;
+        java) PORT=8082 ;;
+        python) PORT=8083 ;;
+    esac
+fi
 
-case "$LANGUAGE" in
-  rust)
-    BIN="./Rust_${CAP_TASK} 100000"
-    if [[ -x "$BIN" ]]; then
-      echo "[*] Running Rust: $BIN"
-      "$BIN"
-    else
-      echo "❌ Rust executable not found: $BIN"
-      exit 2
-    fi
-    ;;
-  go)
-    BIN="./Go_${CAP_TASK} 100000"
-    if [[ -x "$BIN" ]]; then
-      echo "[*] Running Go: $BIN"
-      "$BIN"
-    else
-      echo "❌ Go executable not found: $BIN"
-      exit 2
-    fi
-    ;;
-  java)
-    CLASS_NAME="${CAP_TASK}"
-    if [[ -f "$CLASS_NAME.class" ]]; then
-      echo "[*] Running Java: $CLASS_NAME"
-      java "$CLASS_NAME 100000"
-    else
-      echo "❌ Java class not found: $CLASS_NAME.class"
-      exit 2
-    fi
-    ;;
-  *)
-    echo "❌ Unsupported language: $LANGUAGE"
-    echo "   Use: rust | go | java"
-    exit 3
-    ;;
+case $LANG in
+    rust)
+        echo "[*] Starting Rust server on port $PORT..."
+        cd rust
+        RUST_LOG=info ./target/release/server
+        ;;
+    go)
+        echo "[*] Starting Go server on port $PORT..."
+        cd go
+        PORT=$PORT ./server
+        ;;
+    java)
+        echo "[*] Starting Java server on port $PORT..."
+        cd java
+        echo "    Note: Java expected to show poor C0 performance due to JIT compilation overhead"
+        java -Xms2g -Xmx2g JavaBenchmarkServer $PORT
+        ;;
+    python)
+        echo "[*] Starting Python server on port $PORT..."
+        cd python
+        echo "    Note: Python expected to show very poor performance due to interpreter overhead"
+        python3 benchmark_server.py $PORT
+        ;;
+    *)
+        echo "Unknown language: $LANG"
+        echo "Supported: rust, go, java, python"
+        exit 1
+        ;;
 esac
