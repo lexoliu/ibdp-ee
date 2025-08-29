@@ -63,7 +63,7 @@
     commentstyle=\color{codegreen},
     stringstyle=\color{codepurple},
     backgroundcolor=\color{backcolour},
-    morekeywords={*,plt,pd,sys,os,re}, % Add common library names if needed
+    morekeywords={*,plt,pd,sys,os,re},
     showstringspaces=false,
     numbers=left,
     numberstyle=\tiny\color{codegray},
@@ -71,7 +71,6 @@
     breaklines=true,
     captionpos=b,
 }
-% --- End Code Listing Styles ---
 
 \title{Performance Impact of Garbage Collection in Real-World Applications}
 \author{Lexo Liu}
@@ -91,191 +90,430 @@
 \newpage
 
 \section{Introduction}
-\input{intro.tex}
+
+\subsection{Memory Management in Programming}
+
+Memory management is one of the fundamental challenges in systems and application programming. It determines how memory is allocated, used, and reclaimed during a program's execution. Mismanagement can lead to critical problems such as memory leaks, segmentation faults, or degraded performance. In most programming languages, memory can be divided into two major areas: \textbf{stack memory} and \textbf{heap memory}. These regions serve distinct purposes and are managed in fundamentally different ways. \textbf{Stack memory} is used to store function call frames, including local variables and return addresses. It follows a strict last-in, first-out (LIFO) order, meaning that memory is allocated when a function is called and deallocated automatically when the function returns. This behavior is managed by the compiler and operating system, making stack memory very efficient and deterministic. Importantly, programmers do not need to manually manage stack memory, and issues such as memory leaks or dangling pointers are extremely rare in stack-based memory. \textbf{Heap memory}, on the other hand, is used for dynamic memory allocation when the required lifetime of data is not bound to a function's scope. This memory must be manually allocated and deallocated using functions like \texttt{malloc()} and \texttt{free()} in C/C++. Failure to do so properly can lead to memory safety issues.
+
+To simplify heap memory management and reduce such risks, many modern languages (e.g., Java, Go, Python) incorporate \textbf{garbage collection}, a form of automatic memory management that reclaims unused memory at runtime.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[scale=1.2, every node/.style={font=\small}]
+% Memory layout
+\draw[thick] (0,0) rectangle (4,6);
+\node[anchor=west] at (4.2,5.8) {Higher Address};
+\node[anchor=west] at (4.2,0.2) {Lower Address};
+% Stack region
+\draw[dashed] (0,4.5) -- (4,4.5);
+\node at (2,5.3) {\textbf{Stack (LIFO)}};
+\draw[fill=blue!10] (0.5,4.6) rectangle (3.5,5.2);
+\node at (2,4.9) {Function Call Frame};
+\draw[fill=blue!10] (0.5,3.8) rectangle (3.5,4.4);
+\node at (2,4.1) {Local Variables};
+\draw[->, thick] (2,3.6) -- (2,2.7);
+\node at (3,3.1) {Grows Downward};
+
+% Heap region
+\node at (2,1.3) {\textbf{Heap (Dynamic)}};
+\draw[fill=red!10] (0.5,1.2) rectangle (3.5,1.9);
+\node at (2,1.55) {Object A};
+\draw[fill=red!10] (0.5,0.4) rectangle (3.5,1.1);
+\node at (2,0.75) {Object B};
+\draw[->, thick] (2,2.0) -- (2,3.0);
+\node at (3,2.5) {Grows Upward};
+
+% Label
+\node[anchor=west] at (4.2,4.5) {Stack/Heap Boundary};
+\end{tikzpicture}
+\caption{Stack and Heap Memory Layout in a Typical Program }
+\end{figure}
+
+Understanding the differences between stack and heap memory is crucial for analyzing how programming languages manage memory. In the following sections, we will explore how heap memory is managed through manual techniques and automatic algorithms such as garbage collection.
+
+\subsection{Research Motivation and Objectives}
+
+Modern programming languages diverge significantly in their approach to memory management. While languages like C and Rust require manual memory management, offering fine-grained control at the cost of greater developer responsibility, languages like Java, Go, and Python implement automatic memory management through garbage collection. This fundamental difference raises important questions about the performance trade-offs between these approaches. This research aims to systematically investigate how garbage collection impacts application performance in real-world scenarios. While it is commonly accepted that automatic memory management introduces some overhead, the precise nature, extent, and practical implications of this overhead remain insufficiently documented across different types of applications and workloads. The primary objectives of this research are:
+
+\begin{itemize}
+    \item To quantify the performance differences between garbage-collected and manually managed languages in both compute-intensive and I/O-intensive tasks 
+    \item To identify specific scenarios where garbage collection overhead is most significant 
+    \item To analyze how modern garbage collection algorithms perform under different workload patterns 
+    \item To provide evidence-based insights for developers making language selection decisions for performance-critical applications 
+\end{itemize}
+
+While previous studies have examined language performance differences, they often conflate multiple factors such as runtime environments, compiler optimizations, and language features. This research specifically isolates the impact of garbage collection by controlling for other variables and implementing algorithmically identical solutions across languages.
 
 \section{Dynamic Memory Management: Evolution from Manual to Automatic}
-\input{memory_models.tex}
+\subsection{The Challenge of Manual Memory Management}
+
+In the early days of programming, memory management was entirely manual. Languages such as C and C++ required programmers to explicitly control memory allocation and deallocation, providing precise control over system resources at the cost of increased development complexity. This manual approach requires programmers to allocate memory explicitly (using functions like \texttt{malloc} in C) and later free that memory when it is no longer needed (using \texttt{free}).
+
+While manual memory management offers fine-grained control and potentially optimal performance, it introduces significant risks:
+
+\begin{itemize}
+    \item \textbf{Memory leaks} occur when allocated memory is never freed, gradually depleting available system resources.
+    \item \textbf{Dangling pointers} arise when a program accesses memory that has already been freed, causing unpredictable behavior.
+    \item \textbf{Double frees} happen when memory is deallocated multiple times, potentially corrupting memory management data structures.
+    \item \textbf{Buffer overflows} result from writing beyond allocated memory boundaries, creating security vulnerabilities.
+\end{itemize}
+
+The prevalence of these errors in production software has driven the evolution toward safer memory management alternatives.
+
+\subsubsection*{Manual Memory Management Examples in C}
+
+\begin{lstlisting}[language=C, caption=Memory Leak Example, style=mystyle]
+#include <stdlib.h>
+
+void memory_leak() {
+    int* data = (int*) malloc(100 * sizeof(int));
+    // Function ends without freeing 'data'
+    // This memory remains allocated but inaccessible
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=C, caption=Dangling Pointer Example, style=mystyle]
+#include <stdlib.h>
+#include <stdio.h>
+
+void dangling_pointer() {
+    int* data = (int*) malloc(sizeof(int));
+    *data = 42;
+    free(data);
+    // 'data' now points to invalid memory
+    printf("%d\n", *data);  // Undefined behavior!
+}
+\end{lstlisting}
+
+\subsection{The Evolution to Automatic Memory Management}
+
+As software systems grew in complexity, the burden of manual memory management became increasingly problematic. This led to the development of automatic memory management techniques that could reliably handle memory allocation and deallocation without programmer intervention. Two primary approaches emerged: reference counting and tracing garbage collection.
+
+\subsubsection{Reference Counting: A First Step}
+
+Reference counting represents an intermediate step between manual and fully automatic memory management. In this approach, each allocated object maintains a counter that tracks how many references point to it:
+
+\begin{itemize}
+    \item When a new reference to an object is created, its reference count increments.
+    \item When a reference is removed, the count decrements.
+    \item When the count reaches zero, the object is automatically deallocated.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption=Reference Counting Concept, style=pythonstyle]
+def create_reference(obj):
+    obj.ref_count += 1
+
+def remove_reference(obj):
+    obj.ref_count -= 1
+    if obj.ref_count == 0:
+        # Object has no more references
+        for child in obj.references:
+            remove_reference(child)  # Decrement children
+        free(obj)  # Deallocate the object
+\end{lstlisting}
+
+While reference counting immediately reclaims memory when objects become unreachable and distributes collection overhead throughout program execution, it has a critical limitation: it cannot detect cyclic references.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  every node/.style={circle, draw, minimum size=1.2cm},
+  node distance=2.5cm,
+  arrow/.style={->, thick}
+]
+\node (A) {A: 1};
+\node (B) [right=of A] {B: 1};
+
+\draw[arrow] (A) -- (B) node[midway, above, draw=none] {};
+\draw[arrow] (B) to [bend left=30] (A) node[midway, below, draw=none] {};
+
+\node[draw=none] at (0,-2) {Even though neither A nor B is reachable from};
+\node[draw=none] at (0,-2.5) {program roots, their reference counts remain at 1.};
+\end{tikzpicture}
+\caption{The cyclic reference problem: Objects A and B reference each other but are unreachable from program roots. Reference counting alone cannot detect this situation.}
+\label{fig:cyclic_refs}
+\end{figure}
+
+As shown in Figure \ref{fig:cyclic_refs}, when objects form reference cycles, they may maintain non-zero reference counts even when the entire cycle is unreachable from the rest of the program. This results in memory leaks, undermining one of the primary benefits of automatic memory management.
+
+\subsection{Tracing Garbage Collection: A Comprehensive Solution}
+
+To address the limitations of reference counting, tracing garbage collection was developed based on a fundamentally different principle: \textbf{reachability analysis}. Rather than tracking individual references, tracing collectors determine whether objects are reachable from a set of root references within the program.
+
+\subsubsection{Reachability Analysis: The Foundation of Modern GC}
+
+In reachability analysis, memory can be modeled as a directed graph where:
+\begin{itemize}
+    \item Nodes represent allocated objects
+    \item Edges represent references between objects
+    \item Special nodes called "roots" represent references directly accessible to the program (e.g., global variables, stack variables, and registers)
+\end{itemize}
+
+The key insight of reachability analysis is that an object is "live" (still needed) if and only if it is reachable by following a path of references from any root. Conversely, any object that cannot be reached from the roots is definitionally unreachable by the program and can safely be reclaimed.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  every node/.style={circle, draw, minimum size=1.2cm},
+  node distance=2.2cm and 2.5cm,
+  arrow/.style={->, thick},
+  reachable/.style={fill=gray!20},
+  unreachable/.style={fill=red!15}
+]
+
+\node[reachable] (root) {Root};
+\node[reachable] (A) [right=of root] {A};
+\node[reachable] (B) [below=of A] {B};
+\node[reachable] (C) [right=of A] {C};
+\node[reachable] (D) [below=of C] {D};
+\node[unreachable] (E) [right=of D] {E};
+\node[unreachable] (F) [right=of C] {F};
+
+\draw[arrow] (root) -- (A);
+\draw[arrow] (A) -- (B);
+\draw[arrow] (A) -- (C);
+\draw[arrow] (C) -- (D);
+\draw[arrow] (E) -- (F);
+\draw[arrow] (F) -- (E);
+
+\end{tikzpicture}
+\caption{Reachability analysis in garbage collection. Objects E and F form a cycle but are unreachable from any root, making them eligible for collection despite their mutual references.}
+\label{fig:reachability}
+\end{figure}
+
+As illustrated in Figure \ref{fig:reachability}, reachability analysis elegantly solves the cyclic reference problem. Even though objects E and F reference each other (maintaining non-zero reference counts), they are unreachable from any root and therefore eligible for collection.
+
+\subsubsection{Mark-and-Sweep: The Archetypal Tracing Algorithm}
+
+The most fundamental tracing garbage collection algorithm is Mark-and-Sweep, which operates in two distinct phases:
+
+\begin{itemize}
+    \item \textbf{Mark Phase}: Starting from all roots, traverse the object graph and mark every object encountered as "reachable."
+    \item \textbf{Sweep Phase}: Scan the entire heap and reclaim any unmarked objects, as they cannot be reached from the roots.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption=Mark-and-Sweep Algorithm, style=pythonstyle]
+def mark_and_sweep():
+    # Mark phase
+    for root in program_roots:
+        mark(root)
+    
+    # Sweep phase
+    for object in heap:
+        if not object.is_marked:
+            free(object)  # Object is unreachable, reclaim it
+        else:
+            object.is_marked = False  # Reset for next collection
+
+def mark(object):
+    if object is None or object.is_marked:
+        return  # Already marked or null reference
+    
+    object.is_marked = True  # Mark as reachable
+    
+    # Recursively mark all referenced objects
+    for reference in object.references:
+        mark(reference)
+\end{lstlisting}
+
+The mark-and-sweep approach provides several advantages:
+\begin{itemize}
+    \item It correctly identifies and collects cyclic garbage
+    \item It guarantees that all unreachable objects will be reclaimed
+    \item It can be implemented efficiently with various optimizations
+\end{itemize}
 
 \section{No Silver Bullet: The Performance Overhead of Garbage Collectors}
-\input{perf_cost_gc.tex}
+"No Silver Bullet" is a famous saying in computer science, it refers that there is no single thing could handle all condition perfectly without any cost. For manually memory allocation, the cost is convenience and safety. For reference counting, it is the risk of cyclic reference counting. And how about the cost for garbage collector?
+
+From a theoretical perspective, garbage collection introduces several performance considerations:
+
+\begin{itemize}
+    \item \textbf{Stop-the-world pauses}: Traditional GC algorithms may temporarily halt program execution during collection phases, introducing latency spikes.
+    \item \textbf{Memory overhead}: GC systems typically require more memory than manual management to operate efficiently, as they need space for bookkeeping and to amortize collection costs.
+    \item \textbf{CPU overhead}: The collector consumes CPU cycles that could otherwise be used by the application logic.
+    \item \textbf{Cache pollution}: GC operations may displace application data from CPU caches, affecting subsequent performance.
+\end{itemize}
 
 \section{Literature Review}
-\input{literature_review.tex}
 
+
+\subsection{Historical and Contemporary Studies on Garbage Collection}
+
+The trade-off between manual memory management and garbage collection has been extensively studied in both systems and programming language research. Early studies such as \citet{wilson1992uniprocessor} emphasized the runtime overhead of tracing collectors, showing that stop-the-world pause times could grow linearly with heap size. Later work focused on improving collector design, for example through generational collection \citep{unger1984generation}, concurrent mark-and-sweep \citep{dijkstra1978concurrent}, and modern pauseless algorithms such as G1 and ZGC in Java \citep{shipilev2019zgc}. These advances demonstrate that garbage collectors are not static technologies but continuously evolving to minimize latency and maximize throughput.
+
+Empirical performance comparisons across programming languages have been carried out in a number of benchmarking studies. The Computer Language Benchmarks Game\footnote{\url{https://benchmarksgame-team.pages.debian.net/benchmarksgame/}} provides a wide-ranging dataset comparing implementations of standard algorithms across C, Java, Go, and others. However, critics note that such benchmarks often conflate language design with implementation quality and do not isolate the specific contribution of garbage collection overhead \citep{sewell2012performance}. Other applied studies have investigated GC in the context of managed runtimes for web servers and databases \citep{domani2000gcserver}, showing measurable pause-induced latency outliers in high-throughput systems.
+
+\subsection{Gap in Existing Research}
+
+Despite decades of progress in garbage collection theory and engineering, there remains a shortage of experimental work that focuses on isolating GC overhead in realistic, end-to-end application workloads. Prior studies often rely on microbenchmarks or compiler-level analysis, which are valuable but do not directly inform practitioners developing web services or distributed systems today. In addition, much of the literature predates modern concurrent and low-latency collectors, making their conclusions less representative of current environments.
+
+Therefore, this project seeks to contribute by:
+\begin{itemize}
+    \item Narrowing scope to compare GC vs. manual memory management in languages with broadly similar compilation strategies (Rust, Go, Java).
+    \item Using application-level workloads (echo server, key-value store, JSON/serialization tasks, prime computation) rather than synthetic allocation loops.
+    \item Reporting not only throughput and latency, but also memory consumption trends, which are underexplored in existing studies.
+\end{itemize}
+
+\section{Methodology}
 \section{Methodology}
 \label{sec:methodology}
 
-\subsection{Research Question and Causal Framework}
+\subsection{Experimental Setup}
 
-\subsubsection{Primary Research Question}
-\textbf{RQ1 (Main):} In realistic and synthetic tasks, do GC and non-GC languages show statistically significant and engineering-meaningful differences in p95/p99 latency, throughput, and memory footprint?
-
-\textbf{RQ2 (Mechanism):} How do these differences vary with object lifetime distribution, concurrency level, load intensity, and allocation strategy?
-
-\subsubsection{Causal Thinking}
-We frame this as a causal inference problem where:
-\begin{itemize}
-    \item \textbf{Treatment:} Use of GC $\rightarrow$ runtime mechanisms (write barriers/concurrent marking/pauses) $\rightarrow$ instruction and cache behavior $\rightarrow$ latency/throughput/memory
-    \item \textbf{Confounders:} Algorithm/library implementation, compilation optimization, I/O and networking $\rightarrow$ controlled through isomorphic implementation, unified libraries and compilation flags, I/O isolation
-\end{itemize}
-
-\subsubsection{Hypotheses}
-\begin{itemize}
-    \item \textbf{H0 (Null):} Under equivalent loads, GC and non-GC languages show no significant difference in p95 latency and throughput (difference $< \delta$)
-    \item \textbf{H1 (Alternative):} GC languages introduce statistically and practically significant differences ($\geq \delta$)
-\end{itemize}
-
-Equivalence boundaries $\delta$ are set to $\pm$10\% for latency and $\pm$7\% for throughput.
-
-\subsection{Experimental Design}
-
-\subsubsection{Variables}
-
-\paragraph{Independent Variables (Factor Design)}
-\begin{itemize}
-    \item \textbf{T:} Memory management paradigm (2 levels): non-GC (Rust) vs GC (Go)
-    \item \textbf{L:} Load intensity (3 levels): Low (~40\% saturation) / Medium (~70\%) / High (~90-95\%)
-    \item \textbf{W:} Task type (4 tiers): C0 pure compute / Micro / Meso / Macro
-    \item \textbf{C:} Concurrency (2 levels): Single-thread (or minimal concurrency) / High concurrency (CPU×2)
-    \item \textbf{S:} Allocation strategy (2 levels): Pre-allocated/pooled vs temporary allocation
-\end{itemize}
-
-\paragraph{Dependent Variables}
-\begin{itemize}
-    \item \textbf{Primary:} p95, p99 latency; steady-state throughput (RPS/QPS)
-    \item \textbf{Secondary:} RSS peak/steady-state, working set size, cycles/op, cache miss\%, GC count and pause distribution (GC group)
-\end{itemize}
-
-\paragraph{Control Variables}
-Hardware/OS fixed; CPU core binding; unified compilation flags (Rust -O3/LTO, Go version locked); I/O isolation for Micro/C0 tests.
-
-\subsection{Task Suite}
-
-Our benchmark suite implements identical algorithms across languages with four hierarchical categories:
-
-\subsubsection{C0 Pure Compute (Negative Control)}
-\begin{itemize}
-    \item \textbf{C0a:} Vector dot product/reduction with pre-allocated large arrays, zero allocation
-    \item \textbf{C0b:} Vectorizable vs branch-intensive computation (still zero allocation)
-    \item \textbf{C0c:} FFT/convolution with pre-allocated work area
-    \item \textbf{C0d:} Control version switching between "pre-allocated/pooled" and "per-step temporary buffer" on same algorithm
-\end{itemize}
-
-\subsubsection{Micro (Memory Behavior Isolation)}
-\begin{itemize}
-    \item \textbf{A1:} Short-lived small object burst (16-128B, escape control)
-    \item \textbf{A2:} Long-lived set + tidal growth (live set slowly rises)
-    \item \textbf{A3:} Random graph traversal (pointer chasing + write barrier cost)
-    \item \textbf{A4:} String parsing/concatenation (temporary object flood)
-\end{itemize}
-
-\subsubsection{Meso (Medium Scale)}
-\begin{itemize}
-    \item \textbf{B1:} Batch processing transformation (CSV/JSON→transform→JSON)
-    \item \textbf{B2:} Multi-producer multi-consumer queue (allocation→reclaim concurrent paths)
-\end{itemize}
-
-\subsubsection{Macro (End-to-End Web)}
-\begin{itemize}
-    \item \textbf{C1:} Echo (minimal framework path)
-    \item \textbf{C2:} Static file serving
-    \item \textbf{C3:} JSON API (complex serialization)
-    \item \textbf{C4:} Template rendering (server-side HTML generation)
-    \item \textbf{C5:} Database query simulation
-\end{itemize}
-
-Each task provides both \textbf{S} allocation strategies (pre-allocated/temporary); endpoints and parameters unified across languages.
-
-\input{methodology_v2.tex}
-
-We define the equivalence margin $\delta$ as $\pm$10\% for latency metrics and $\pm$7\% for throughput, following common practice in systems benchmarking.
-
-% NEW: Experimental Design
-\subsection{Experimental Design}
-Our experiment follows a factorial design with the following factors:
+All experiments were executed on a dedicated workstation with the following hardware and software configuration:
 
 \begin{itemize}
-    \item \textbf{Independent variables:} 
-    \begin{itemize}
-        \item Memory management paradigm (GC vs non-GC)
-        \item Load intensity (low, medium, high)
-        \item Task type (C0 pure compute, Micro, Meso, Macro)
-        \item Concurrency level (single-thread vs multi-thread)
-        \item Allocation strategy (preallocated vs temporary)
-    \end{itemize}
-    \item \textbf{Dependent variables:} 
-    \begin{itemize}
-        \item Latency (p50, p95, p99)
-        \item Throughput (RPS)
-        \item Memory footprint (RSS)
-        \item CPU cycles per operation, cache misses
-        \item GC-specific metrics (pause time, allocation rate)
-    \end{itemize}
-    \item \textbf{Control variables:} Identical hardware, operating system, compiler optimization levels, networking stack, and benchmarking tools.
+    \item CPU: Apple M2 Max (12-core, 3.5 GHz performance cores, 4 efficiency cores)
+    \item Memory: 32 GB unified memory
+    \item Operating System: macOS 15.6
+    \item Toolchain: Go 1.22, Rust 1.80 (cargo), OpenJDK 21 with Spring Boot 3.3.3
 \end{itemize}
 
-Each configuration was run in randomized order, with warm-up (30s), steady (120–180s), and overload (60s) phases. Runs were repeated $N \geq 20$ times to ensure statistical power. Statistical tests include Mann–Whitney U for non-parametric comparison, TOST equivalence tests, and Benjamini–Hochberg FDR correction for multiple comparisons.
+To ensure fairness, all servers were run on the same machine with no competing background load. Each language implementation bound to \texttt{127.0.0.1:8080} exclusively during its run. Before starting a new experiment, the port was automatically freed and the process tree of the prior server terminated to avoid interference.
 
-% NEW: C0 Workloads
-\subsection{C0 Pure Compute Workloads}
-To validate the experimental design, we include negative control tasks where no memory allocation occurs:
+\subsection{Workload Design}
+
+Three workload groups were selected to represent real-world application patterns:
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{@{}lll@{}}
+  \toprule
+  Group & Endpoint(s) & Characteristics \\
+  \midrule
+  Prime & \texttt{/is\_prime} & CPU-bound, minimal allocation \\
+  Light & \texttt{/echo}, \texttt{/json}, \texttt{/json2xml} & Mixed serialization, moderate allocation \\
+  KV & \texttt{/kv/get}, \texttt{/kv/set}, \texttt{/kv/delete} & I/O-bound, allocation-heavy, persistent state \\
+  \bottomrule
+  \end{tabular}
+  \caption{Workload categories and their characteristics.}
+  \label{tab:workloads}
+\end{table}
+
+This taxonomy allows analysis across different stress patterns: purely computational, moderately memory-intensive, and allocation-heavy workloads.
+
+\subsection{Load Generation and Metrics}
+
+Workloads were stressed using the \texttt{k6} load testing framework with the following parameters:
+
 \begin{itemize}
-    \item Vector dot product and reduction (zero allocation)
-    \item FFT and convolution with preallocated workspace
-    \item Branch-heavy compute kernels (to compare branch prediction vs allocation cost)
-    \item Allocation strategy contrast (preallocated vs per-iteration temporary buffers)
+    \item Virtual Users (VUs): 64
+    \item Duration: 60 seconds per workload per language
+    \item Base URL: \texttt{http://127.0.0.1:8080}
 \end{itemize}
 
-We expect GC and non-GC languages to show \emph{equivalent} performance in these tasks.
+Each test produced JSON-formatted time-series data capturing:
+\begin{itemize}
+    \item \textbf{Throughput (requests/sec)} from \texttt{http\_reqs}
+    \item \textbf{Latency (ms)} from \texttt{http\_req\_duration}
+    \item \textbf{Failure Rate} from \texttt{http\_req\_failed}
+\end{itemize}
 
-\subsection{Micro test}
-\input{methodology/micro.tex}
+In addition, memory consumption was sampled once per second using the \texttt{ps} command to record RSS (resident set size). These data were stored in CSV for later analysis.
 
-\subsection{Simulated test}
-\input{methodology/simulated.tex}
+\subsection{Data Analysis}
+
+For each workload-language combination:
+\begin{enumerate}
+    \item Time-series data were aligned to a common start time.
+    \item Mean throughput, median latency, and peak memory were computed.
+    \item Comparative plots were generated for each workload group: throughput, latency, and memory trends.
+\end{enumerate}
+
+This analysis design enables both cross-language comparison (e.g., Rust vs. Go under \texttt{/kv/set}) and intra-language workload scaling (e.g., Java across prime vs. KV).
 
 \section{Results \& Analysis}
 
-% NEW: Equivalence Validation
-\subsection{Pilot and Equivalence Test (C0 Workloads)}
-The C0 pure compute tasks serve as validation. Results indicate that in allocation-free scenarios, Go and Rust achieve statistically equivalent throughput and latency within the predefined equivalence margin. This strengthens the validity of subsequent comparisons in allocation-heavy workloads.
+This section presents the empirical findings of the benchmark experiments across three workload groups: \textbf{Prime (compute-intensive)}, \textbf{Light (serialization)}, and \textbf{KV (allocation-heavy key-value store)}. For each workload, we compare throughput (requests per second), average latency (ms), and memory consumption (RSS, MB) across Java, Go, and Rust implementations.
 
-\subsection{Micro test}
-\input{results/micro.tex}
+\subsection{Prime Workload: Compute-Intensive, Minimal Allocation}
 
-\subsection{Simulated test}
-\input{results/simulated.tex}
+\begin{figure}[h]
+    \centering
+    %\includegraphics[width=0.9\linewidth]{results/prime_throughput.png}%
+    \caption{Throughput comparison in Prime workload.}
+    \label{fig:prime-throughput}
+\end{figure}
 
-% NEW: Result Interpretation Framework
-\subsection{Result Interpretation}
-For each workload we report:
+\begin{figure}[h]
+    \centering
+    %\includegraphics[width=0.9\linewidth]{results/prime_latency.png}%
+    \caption{Latency comparison in Prime workload.}
+    \label{fig:prime-latency}
+\end{figure}
+
+In the prime number benchmark, Rust and Go demonstrated nearly identical throughput and latency, with only minor fluctuations attributable to runtime scheduling. In contrast, Java’s throughput was significantly lower, lagging by an order of magnitude compared to both Rust and Go (Figure~\ref{fig:prime-throughput}). Average latencies for Java were consistently higher, even in the absence of dynamic allocations (Figure~\ref{fig:prime-latency}).
+
+This result indicates that garbage collection is not the primary bottleneck in Java for this workload; instead, the performance gap arises from the runtime characteristics of the JVM, including warm-up time, JIT compilation overhead, and less efficient numeric operations compared to AOT-compiled Rust and Go binaries.
+
+\subsection{Light Workload: Serialization and Moderate Allocation}
+
+\begin{figure}[h]
+    \centering
+    %\includegraphics[width=0.9\linewidth]{results/light_throughput.png}%
+    \caption{Throughput comparison in Light workload.}
+    \label{fig:light-throughput}
+\end{figure}
+
+In the Light workload, which mixes echo, JSON serialization, and JSON-to-XML conversion, Rust again outperformed both GC-based languages in terms of raw throughput. Go’s throughput was slightly lower than Rust but remained close, with less than a 10\% difference. Java, while improved relative to its prime workload results, still fell behind both Go and Rust (Figure~\ref{fig:light-throughput}).
+
+Latency distributions further highlighted the role of garbage collection: Go experienced occasional spikes associated with minor GC cycles, while Rust showed consistently flat latency curves. Java, in addition to baseline runtime overhead, exhibited both higher median latency and more pronounced tail outliers, confirming that GC pauses and JVM scheduling contribute to unpredictability under moderate allocation pressure.
+
+\subsection{KV Workload: Allocation-Heavy, Persistent State}
+
+\begin{figure}[h]
+    \centering
+    %\includegraphics[width=0.9\linewidth]{results/kv_memory.png}%
+    \caption{Memory consumption in KV workload.}
+    \label{fig:kv-memory}
+\end{figure}
+
+The KV workload, designed to mimic a simplified Redis-like server, was the most memory-intensive scenario. Here, differences in memory management strategies became most visible:
+
 \begin{itemize}
-    \item Median and tail latencies (p95, p99) with 95\% confidence intervals
-    \item Throughput curves (RPS vs latency)
-    \item Resource metrics (RSS, cycles/op, cache miss rates)
-    \item Statistical significance and equivalence test outcomes
+    \item Rust exhibited the lowest and most stable RSS memory footprint, consistent with explicit, deterministic memory release.
+    \item Go’s memory usage was higher but stable, demonstrating the effect of heap reservation and concurrent GC. Importantly, throughput remained comparable to Rust, suggesting Go’s GC is efficient enough to sustain high load.
+    \item Java showed both the largest baseline memory footprint and the steepest upward trend, stabilizing at hundreds of MBs even for moderate request rates. This reflects JVM heap allocation strategies and background GC tuning.
 \end{itemize}
 
-\subsection{Conclusion}
-\input{results_conclusion.tex}
+From a latency perspective, Rust once again provided the most predictable response times. Go introduced occasional but tolerable pauses, while Java not only lagged in throughput but also displayed higher long-tail latencies, consistent with more expensive GC cycles.
+
+\subsection{Cross-Workload Comparison}
+
+Across all workloads, two patterns emerge clearly:
+
+\begin{enumerate}
+    \item \textbf{Java consistently underperformed} Rust and Go, even in the allocation-free Prime workload, highlighting that JVM overhead cannot be ignored when comparing performance-critical applications.
+    \item \textbf{Rust and Go demonstrated near-parity} in compute and lightweight workloads, diverging only under heavy allocation pressure, where Rust’s manual memory management gave it more predictable performance while Go’s concurrent GC introduced minor but measurable variability.
+\end{enumerate}
+
+Taken together, these results support the conclusion that garbage collection does not always impose prohibitive overhead (as Go shows strong performance), but language runtime environments play a decisive role in determining competitiveness.
 
 \section{Discussion}
-While Rust's compile-time memory guarantees and zero-cost abstractions make it ideal for predictable performance, Go demonstrates that well-engineered garbage collectors can remain competitive, especially when memory pressure is low. 
 
-% NEW: Mechanism discussion
-Our negative control (C0) confirmed that differences are negligible when allocation is absent, validating the attribution of observed differences in Micro and Macro workloads to memory management. 
-GC pauses and write barriers explain the higher tail latencies under allocation-intensive scenarios, while throughput often remains similar due to concurrent GC designs. 
-
-\section{Conclusion}
-This research evaluated the performance trade-offs between garbage-collected (Go) and manually-managed (Rust) languages using real-world compute benchmarks. The experimental evidence suggests that:
+The results provide nuanced insights into the performance impact of garbage collection:
 
 \begin{itemize}
-  \item Garbage collection overhead is negligible in compute-intensive scenarios with low allocation frequency
-  \item Rust offers better theoretical control but does not always yield drastic performance gains
-  \item Go provides sufficient performance for many real-world tasks, simplifying development without major cost
+    \item \textbf{JVM Runtime Overhead}: Java’s significant underperformance in allocation-free workloads demonstrates that JVM-related factors (JIT warm-up, runtime checks, object model) can dominate performance, independent of garbage collection. This makes Java less competitive in microservice scenarios requiring consistent low-latency computation.
+    \item \textbf{Predictability vs. Convenience}: Rust’s deterministic memory management ensures stable performance across workloads. Go trades some predictability for developer productivity, but its concurrent GC mitigates the worst-case pauses effectively.
+    \item \textbf{Workload Sensitivity}: Under compute-heavy workloads, GC overhead is negligible. Under allocation-heavy workloads, Rust maintains superior predictability, while Go remains competitive in throughput but exhibits occasional latency variance.
 \end{itemize}
 
-Future work may extend to IO-bound and concurrency-heavy scenarios, where memory pressure and GC activity are more variable.
+These findings suggest that the decision between GC and non-GC languages should consider not only peak throughput, but also latency guarantees and memory predictability under load.
+
+\section{Conclusion}
+
+This research evaluated the performance trade-offs between garbage-collected (Go, Java) and manually-managed (Rust) languages using real-world compute benchmarks. The experimental evidence suggests that:
+
+\begin{itemize}
+  \item Garbage collection overhead is negligible in compute-intensive scenarios with low allocation frequency.
+  \item Rust offers better predictability and control, especially under allocation-heavy workloads.
+  \item Go provides competitive performance with minimal developer burden, demonstrating that modern GC can achieve near-native throughput.
+  \item Java, despite its mature runtime and advanced collectors, incurs additional costs unrelated to GC that limit its competitiveness against AOT-compiled languages.
+\end{itemize}
+
+Future work may extend to I/O-bound and concurrency-heavy scenarios, as well as tuning JVM parameters to investigate whether Java’s runtime overhead can be mitigated in practice.
 
 \section{References}
 \nocite{*}
@@ -283,7 +521,6 @@ Future work may extend to IO-bound and concurrency-heavy scenarios, where memory
 \bibliography{references}
 
 \section{Appendices}
-% Benchmark data tables, additional charts, scripts
 Appendices include benchmark data tables, raw CSVs, statistical analysis scripts, and extended charts such as GC pause distributions.
 
 \end{document}
