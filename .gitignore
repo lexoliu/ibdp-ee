@@ -1,13 +1,13 @@
 .venv
 .ropeproject
 .DS_Store
-/Benchmark/rust/target/
-/Benchmark/java/*.class
+/Benchmark/java/target
 *.blg
 *.log
 *.gzropeproject
 .DS_Store
-/Benchmark/rust/target/
+/Benchmark/rust/target
 *.blg
 *.log
 *.gz
+/Benchmark/results
