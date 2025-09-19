@@ -326,6 +326,7 @@ func buildRouter() http.Handler {
 	return r
 }
 
+func main() {
 	logHost := os.Getenv("SERVER_HOST")
 	if logHost == "" {
 		logHost = "0.0.0.0"
