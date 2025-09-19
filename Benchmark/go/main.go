@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -325,9 +326,18 @@ func buildRouter() http.Handler {
 	return r
 }
 
-func main() {
-	log.Println("listening on http://127.0.0.1:8080")
-	if err := http.ListenAndServe("127.0.0.1:8080", buildRouter()); err != nil {
+	logHost := os.Getenv("SERVER_HOST")
+	if logHost == "" {
+		logHost = "0.0.0.0"
+	}
+	port := os.Getenv("SERVER_PORT")
+	if port == "" {
+		port = "8080"
+	}
+	addr := logHost + ":" + port
+
+	log.Printf("listening on http://%s\n", addr)
+	if err := http.ListenAndServe(addr, buildRouter()); err != nil {
 		log.Fatal(err)
 	}
 }

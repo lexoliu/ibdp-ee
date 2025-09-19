@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Utilities for managing benchmark language services."""
+
+from __future__ import annotations
+
+import os
+import shlex
+import signal
+import socket
+import subprocess
+import time
+from pathlib import Path
+from typing import Optional
+
+
+def popen(cmd: str, cwd: Optional[Path] = None, env: Optional[dict] = None, log_file: Optional[Path] = None) -> subprocess.Popen:
+    stdout = log_file.open("w") if log_file else None
+    try:
+        return subprocess.Popen(
+            cmd,
+            cwd=str(cwd) if cwd else None,
+            env=env,
+            shell=True,
+            stdout=stdout or subprocess.PIPE,
+            stderr=subprocess.STDOUT if stdout else subprocess.PIPE,
+            preexec_fn=os.setsid if os.name != "nt" else None,
+            text=True if stdout is None else False,
+        )
+    except Exception:
+        if stdout:
+            stdout.close()
+        raise
+
+
+def kill_tree(proc: subprocess.Popen) -> None:
+    if not proc:
+        return
+    try:
+        if os.name == "nt":
+            proc.terminate()
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except Exception:
+        pass
+
+
+def port_busy(port: int) -> bool:
+    sock = socket.socket()
+    sock.settimeout(0.2)
+    try:
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+    finally:
+        sock.close()
+
+
+def pids_on_port(port: int) -> list[int]:
+    try:
+        output = subprocess.check_output(
+            f"lsof -iTCP:{port} -sTCP:LISTEN -n -P",
+            shell=True,
+            text=True,
+        )
+        return [int(line.split()[1]) for line in output.splitlines()[1:] if line.split()]
+    except Exception:
+        try:
+            output = subprocess.check_output(
+                f"fuser -n tcp {port}",
+                shell=True,
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+            return [int(pid) for pid in output.split() if pid.isdigit()]
+        except Exception:
+            return []
+
+
+def ensure_port_free(port: int = 8080, wait_after_kill: float = 1.0) -> None:
+    if not port_busy(port):
+        return
+
+    print(f"!! port {port} busy, trying to free...")
+    for pid in pids_on_port(port):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except Exception:
+            pass
+
+    for _ in range(20):
+        if not port_busy(port):
+            print(f"-- port {port} is free (after SIGTERM)")
+            return
+        time.sleep(0.2)
+
+    for pid in pids_on_port(port):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except Exception:
+            pass
+
+    time.sleep(wait_after_kill)
+    if port_busy(port):
+        raise RuntimeError(f"port {port} still busy after SIGKILL")
+    print(f"-- port {port} is free (after SIGKILL)")
+
+
+def curl_post_echo_ok(url: str) -> bool:
+    cmd = f"curl -fsS -X POST {shlex.quote(url)} -H 'Content-Type: text/plain' -d 'ok'"
+    return subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
+def wait_for_health(base_url: str, health_path: str = "/echo", port: Optional[int] = None, timeout: int = 120) -> bool:
+    if port is not None:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if port_busy(port):
+                break
+            time.sleep(0.2)
+        else:
+            return False
+
+    start = time.time()
+    while time.time() - start < timeout:
+        if curl_post_echo_ok(base_url.rstrip("/") + health_path):
+            return True
+        time.sleep(1)
+    return False
+
+__all__ = [
+    "popen",
+    "kill_tree",
+    "port_busy",
+    "pids_on_port",
+    "ensure_port_free",
+    "curl_post_echo_ok",
+    "wait_for_health",
+]

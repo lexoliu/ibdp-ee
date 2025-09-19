@@ -3,17 +3,22 @@ mod echo;
 mod is_prime;
 mod json;
 mod json2xml;
-use axum::{Router, routing::*};
+use std::env;
+
+use axum::{routing::*, Router};
 
 use crate::kv::Engine;
 mod kv;
 mod template;
 #[tokio::main]
 async fn main() {
+    let host = env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".into());
+    let port = env::var("SERVER_PORT").unwrap_or_else(|_| "8080".into());
+    let addr = format!("{}:{}", host, port);
+
     let app = router();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    println!("listening on http://{}", addr);
     axum::serve(listener, app).await.unwrap();
 }
 

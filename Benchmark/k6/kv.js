@@ -5,7 +5,7 @@ export const options = {
   thresholds: { http_req_failed: ['rate<0.01'] },
 };
 
-const base = __ENV.K6_BASE_URL || 'http://127.0.0.1:8080';
+const base = __ENV.K6_BASE_URL || __ENV.BASE_URL || 'http://127.0.0.1:8080';
 
 export default function () {
   // 80% get，18% set，2% delete

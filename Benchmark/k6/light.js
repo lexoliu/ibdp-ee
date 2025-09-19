@@ -8,7 +8,7 @@ export const options = {
   },
 };
 
-const base = __ENV.K6_BASE_URL || 'http://127.0.0.1:8080';
+const base = __ENV.K6_BASE_URL || __ENV.BASE_URL || 'http://127.0.0.1:8080';
 
 // 负载配比（总和为1）：你可以随时调整
 const MIX = [
