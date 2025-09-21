@@ -88,7 +88,7 @@ def parse_args() -> argparse.Namespace:
         default=9000,
         help="Port used when deriving the manager URL (default: 9000)",
     )
-    parser.add_argument("--service-host", default="0.0.0.0", help="Service bind host on manager side")
+    parser.add_argument("--service-host", default="127.0.0.1", help="Service bind host on manager side")
     parser.add_argument("--service-port", type=int, default=8080, help="Service bind port")
     parser.add_argument(
         "--health-host",
