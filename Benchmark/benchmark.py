@@ -124,7 +124,7 @@ def run_k6(
     env.setdefault("BASE_URL", base_url)
     env.setdefault("K6_BASE_URL", base_url)
 
-    period = compute_json_period(duration)
+    period = "1s"
     env.setdefault("K6_OUT_JSON_PERIOD", period)
 
     attempt_note = f" (attempt {attempt}/{total_attempts})" if total_attempts > 1 else ""
@@ -471,16 +471,3 @@ def parse_duration_seconds(duration: str) -> float:
             total += value * 3600.0
     return total
 
-
-def compute_json_period(duration: str, target_samples: int = TARGET_TIMESERIES_SAMPLES) -> str:
-    seconds = parse_duration_seconds(duration)
-    if seconds <= 0 or target_samples <= 0:
-        return "1s"
-    raw_period = max(seconds / float(target_samples), 0.1)
-    if raw_period >= 1.0:
-        rounded = round(raw_period, 3)
-        if abs(rounded - round(rounded)) < 1e-3:
-            return f"{int(round(rounded))}s"
-        return f"{rounded}s"
-    millis = max(int(round(raw_period * 1000)), 1)
-    return f"{millis}ms"
