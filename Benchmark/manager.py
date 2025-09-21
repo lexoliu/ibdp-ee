@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import threading
 import time
@@ -20,11 +21,7 @@ REQUIRED_COMMANDS = ["java", "mvn", "go", "cargo", "curl"]
 
 
 def verify_dependencies() -> None:
-    missing = [
-        cmd
-        for cmd in REQUIRED_COMMANDS
-        if subprocess.call(["which", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0
-    ]
+    missing = [cmd for cmd in REQUIRED_COMMANDS if shutil.which(cmd) is None]
     if missing:
         raise RuntimeError(
             "Missing required commands: "

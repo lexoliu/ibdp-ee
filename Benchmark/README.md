@@ -15,6 +15,13 @@ benchmark runner.
 All Python entry points are self-contained; no additional libraries are
 required beyond the Python standard library.
 
+Quick setup helpers:
+
+- `install_server.sh` – Installs Java, Maven, Go, Rust, and curl on Linux/macOS
+  hosts that will run the services and manager.
+- `install_client.sh` – Installs Python 3 and k6 on the machine that will run
+  the benchmark client.
+
 ## Components
 
 - `manager.py` – REST API that starts/stops a language service on the host where

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -205,11 +206,7 @@ def make_memory_probe(args: argparse.Namespace) -> Callable[[], float | None]:
 
 def main() -> int:
     args = parse_args()
-    missing = [
-        cmd
-        for cmd in REQUIRED_COMMANDS
-        if subprocess.call(["which", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0
-    ]
+    missing = [cmd for cmd in REQUIRED_COMMANDS if shutil.which(cmd) is None]
     if missing:
         print(
             "Missing required commands: "

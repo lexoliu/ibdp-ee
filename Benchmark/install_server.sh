@@ -29,7 +29,7 @@ detect_platform() {
 
 PLATFORM=$(detect_platform)
 echo "Detected platform: $PLATFORM"
-
+ 
 case "$PLATFORM" in
   linux)
     require curl curl 'sudo apt-get update && sudo apt-get install -y curl'
