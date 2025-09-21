@@ -23,9 +23,13 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 def java_command(host: str, port: int) -> tuple[str, dict, Path]:
     jvm_args = "-Xms512m -Xmx1024m -XX:+UseG1GC -XX:+AlwaysPreTouch"
+    run_args = [
+        f"--server.port={port}",
+        f"--server.address={host if host not in {'0.0.0.0', '::', ''} else '0.0.0.0'}",
+    ]
     cmd = (
         "mvn -q -DskipTests "
-        f"-Dspring-boot.run.arguments=--server.port={port} "
+        f"-Dspring-boot.run.arguments={' '.join(run_args)} "
         f"-Dspring-boot.run.jvmArguments='{jvm_args}' "
         "spring-boot:run"
     )
@@ -84,7 +88,7 @@ def start_language_service(
     if wait:
         effective_health_host = health_host or (host if host not in {"0.0.0.0", "::", ""} else "127.0.0.1")
         base_url = f"http://{effective_health_host}:{port}"
-        print("Waiting for service health ...")
+        print(f"Waiting for service health at {base_url}{health_path} ... (logs: {log_path})")
         if not wait_for_health(base_url, health_path=health_path, port=port):
             kill_tree(proc)
             raise RuntimeError("Health check failed")
