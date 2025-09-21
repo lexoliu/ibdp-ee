@@ -29,7 +29,7 @@ def java_command(host: str, port: int) -> tuple[str, dict, Path]:
     ]
     cmd = (
         "mvn -q -DskipTests "
-        f"-Dspring-boot.run.arguments={' '.join(run_args)} "
+        f"-Dspring-boot.run.arguments='{' '.join(run_args)}' "
         f"-Dspring-boot.run.jvmArguments='{jvm_args}' "
         "spring-boot:run"
     )
