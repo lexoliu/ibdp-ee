@@ -9,7 +9,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple
 import urllib.error
 import urllib.request
 
@@ -111,6 +111,12 @@ def parse_args() -> argparse.Namespace:
         default=HTTP_TIMEOUT,
         help="Timeout for manager HTTP requests (default: 120s)",
     )
+    parser.add_argument(
+        "--memory-interval",
+        type=float,
+        default=1.0,
+        help="Seconds between memory samples while a test is running (default: 1.0)",
+    )
 
     return parser.parse_args()
 
@@ -178,6 +184,24 @@ def stop_remote_service(args: argparse.Namespace) -> None:
         print(f"Warning: failed to stop service cleanly: {exc}")
 
 
+def make_memory_probe(args: argparse.Namespace) -> Callable[[], float | None]:
+    status_url = args.manager_url.rstrip("/") + "/status"
+
+    def probe() -> float | None:
+        try:
+            payload = _json_request(status_url, timeout=args.manager_timeout)
+        except Exception:
+            return None
+        meta = payload.get("meta")
+        if isinstance(meta, dict):
+            value = meta.get("memory_mb")
+            if isinstance(value, (int, float)):
+                return float(value)
+        return None
+
+    return probe
+
+
 def main() -> int:
     args = parse_args()
     if args.debug and args.mode != "debug":
@@ -186,6 +210,7 @@ def main() -> int:
     pipeline_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
     plots_dir = args.plots_dir or (RESULTS_ROOT / "plots" / pipeline_id)
+    memory_probe = make_memory_probe(args)
     run_entries: List[Tuple[str, Path]] = []
 
     for language in args.languages:
@@ -206,6 +231,8 @@ def main() -> int:
                 repeats_override=args.repeats,
                 keep_raw=args.keep_raw,
                 label=label,
+                memory_probe=memory_probe,
+                memory_interval=args.memory_interval,
             )
             run_entries.append((language, output_dir))
         except Exception as exc:

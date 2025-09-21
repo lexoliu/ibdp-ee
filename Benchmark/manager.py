@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import threading
 import time
 from http import HTTPStatus
@@ -32,6 +33,20 @@ def parse_bool(value: Any, default: bool) -> bool:
     return default
 
 
+def _process_memory_mb(pid: int | None) -> float | None:
+    if not pid:
+        return None
+    try:
+        output = subprocess.check_output(
+            ["ps", "-o", "rss=", "-p", str(pid)],
+            text=True,
+        )
+        rss_kb = int(output.strip())
+        return rss_kb / 1024.0
+    except Exception:
+        return None
+
+
 class ServiceManager:
     """Track a single managed service process."""
 
@@ -51,7 +66,11 @@ class ServiceManager:
                 "meta": {**self._meta} if running else {},
             }
             if running:
-                payload["meta"].setdefault("pid", self._process.pid if self._process else None)
+                pid = self._process.pid if self._process else None
+                payload["meta"].setdefault("pid", pid)
+                rss = _process_memory_mb(pid)
+                if rss is not None:
+                    payload["meta"]["memory_mb"] = rss
             return payload
 
     def start(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -96,6 +115,9 @@ class ServiceManager:
                 "started_at": time.time(),
                 "pid": proc.pid,
             }
+            rss = _process_memory_mb(proc.pid)
+            if rss is not None:
+                meta["memory_mb"] = rss
             self._process = proc
             self._meta = meta
             return meta

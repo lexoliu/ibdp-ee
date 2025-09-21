@@ -53,9 +53,11 @@ Important arguments:
 Endpoints exposed:
 
 - `POST /start` – Start a service. JSON body mirrors the parameters accepted by
-  `start_service.py`.
+  `start_service.py`. The response includes the service PID and current memory
+  usage in MB.
 - `POST /stop` – Stop the currently running service, if any.
-- `GET /status` – Report whether a service is running and basic metadata.
+- `GET /status` – Report whether a service is running, its PID, and the latest
+  measured memory usage in MB.
 
 ## Running the Full Benchmark
 
@@ -81,11 +83,14 @@ Common flags:
 - `--plots-dir` – Write comparison plots to a custom directory (defaults to
   `results/plots/<timestamp>`).
 - `--skip-plots` – Skip the plotting phase entirely (useful for headless runs).
+- `--memory-interval` – Sampling interval when fetching memory usage from the
+  manager (default `1` second).
 
 The runner writes each benchmark into `results/<language>/<timestamp>/` with:
 
 - `results.json` – Summary metrics per test and metadata about the run.
 - `<test>_timeseries.csv` – Requests-per-second and latency per second.
+- `<test>_memory.csv` – Average RSS (MB) per second while the test executed.
 - Optional raw k6 outputs if `--keep-raw` is set.
 
 ## Running a Single Suite Manually

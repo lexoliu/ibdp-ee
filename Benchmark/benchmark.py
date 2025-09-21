@@ -9,12 +9,13 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple
 
 ROOT = Path(__file__).resolve().parent
 K6_DIR = ROOT / "k6"
@@ -62,6 +63,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=None, help="Custom results directory")
     parser.add_argument("--label", default=None, help="Optional run label printed in summary")
     parser.add_argument("--wait", type=int, default=60, help="Seconds to wait for /echo health (default 60)")
+    parser.add_argument(
+        "--memory-status-url",
+        default=None,
+        help="Manager status endpoint to query for memory usage (optional)",
+    )
+    parser.add_argument(
+        "--memory-interval",
+        type=float,
+        default=1.0,
+        help="Sampling interval in seconds when collecting memory (default: 1.0)",
+    )
     return parser.parse_args()
 
 
@@ -198,6 +210,64 @@ def write_timeseries_csv(rows: List[Tuple[int, int, float]], csv_path: Path) -> 
             handle.write(f"{second},{count},{latency:.4f}\n")
 
 
+def write_memory_csv(samples: List[Tuple[float, float]], csv_path: Path) -> None:
+    if not samples:
+        return
+
+    buckets: Dict[int, List[float]] = {}
+    for elapsed, value in samples:
+        if value is None:
+            continue
+        second = int(elapsed)
+        buckets.setdefault(second, []).append(value)
+
+    if not buckets:
+        return
+
+    with csv_path.open("w", encoding="utf-8") as handle:
+        handle.write("timestamp,memory_mb\n")
+        for second in sorted(buckets.keys()):
+            values = buckets[second]
+            avg = sum(values) / len(values)
+            handle.write(f"{second},{avg:.4f}\n")
+
+
+class MemorySampler:
+    def __init__(self, probe: Callable[[], float | None], interval: float = 1.0) -> None:
+        self._probe = probe
+        self._interval = interval
+        self._stop = threading.Event()
+        self._samples: List[Tuple[float, float | None]] = []
+        self._thread: threading.Thread | None = None
+        self._start_time: float = 0.0
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._start_time = time.time()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> List[Tuple[float, float]]:
+        self._stop.set()
+        if self._thread:
+            self._thread.join()
+        samples = [(elapsed, value) for elapsed, value in self._samples if value is not None]
+        self._samples.clear()
+        self._stop.clear()
+        return samples
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                value = self._probe()
+            except Exception:
+                value = None
+            elapsed = time.time() - self._start_time
+            self._samples.append((elapsed, value))
+            self._stop.wait(self._interval)
+
+
 def run_benchmark(
     language: str,
     base_url: str,
@@ -211,6 +281,8 @@ def run_benchmark(
     output_dir: Path | None = None,
     label: str | None = None,
     wait: int = 60,
+    memory_probe: Callable[[], float | None] | None = None,
+    memory_interval: float = 1.0,
 ) -> Tuple[Path, Dict[str, Dict[str, float]]]:
     tests = tests or list(DEFAULT_TEST_ORDER)
     mode_defaults = MODE_DEFAULTS[mode]
@@ -252,8 +324,12 @@ def run_benchmark(
 
         final_json_path: Path | None = None
         final_summary_path: Path | None = None
+        sampler: MemorySampler | None = None
 
         print(f"\n--- Running {test} ---")
+        if memory_probe is not None:
+            sampler = MemorySampler(memory_probe, interval=memory_interval)
+            sampler.start()
         for attempt in range(1, repeats + 1):
             json_path, summary_path = run_k6(
                 test,
@@ -268,6 +344,10 @@ def run_benchmark(
             final_json_path = json_path
             final_summary_path = summary_path
 
+        memory_samples: List[Tuple[float, float]] = []
+        if sampler is not None:
+            memory_samples = sampler.stop()
+
         if not final_summary_path or not final_json_path:
             raise RuntimeError("Expected k6 outputs were not produced")
 
@@ -275,6 +355,9 @@ def run_benchmark(
 
         rows = parse_timeseries(final_json_path)
         write_timeseries_csv(rows, output_dir / f"{test}_timeseries.csv")
+
+        if memory_samples:
+            write_memory_csv(memory_samples, output_dir / f"{test}_memory.csv")
 
         if not keep_raw:
             final_json_path.unlink(missing_ok=True)
@@ -308,6 +391,23 @@ def run_benchmark(
 def main() -> int:
     args = parse_args()
 
+    memory_probe: Callable[[], float | None] | None = None
+    if args.memory_status_url:
+        def _memory_probe() -> float | None:
+            try:
+                with urllib.request.urlopen(args.memory_status_url, timeout=5) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            except Exception:
+                return None
+            meta = payload.get("meta")
+            if isinstance(meta, dict):
+                value = meta.get("memory_mb")
+                if isinstance(value, (int, float)):
+                    return float(value)
+            return None
+
+        memory_probe = _memory_probe
+
     try:
         run_benchmark(
             args.language,
@@ -321,6 +421,8 @@ def main() -> int:
             output_dir=Path(args.output_dir) if args.output_dir else None,
             label=args.label,
             wait=args.wait,
+            memory_probe=memory_probe,
+            memory_interval=args.memory_interval,
         )
     except KeyboardInterrupt:
         raise
