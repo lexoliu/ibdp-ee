@@ -4,130 +4,173 @@ Plot comparison charts for multiple programming languages benchmark results.
 Shows memory usage, latency, and throughput over time for three languages.
 """
 
+from __future__ import annotations
+
 import json
 import csv
 import argparse
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 import numpy as np
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate comparison charts for benchmark results")
-    parser.add_argument("--results-dir", type=Path, default=Path("results"), 
-                       help="Directory containing benchmark results")
-    parser.add_argument("--languages", nargs="+", default=["java", "go", "rust"],
-                       help="Languages to compare (default: java go rust)")
-    parser.add_argument("--tests", nargs="+", default=["prime", "light", "kv"],
-                       choices=["prime", "light", "kv"],
-                       help="Test types to analyze (default: all tests)")
-    parser.add_argument("--output-dir", type=Path, default=Path("."),
-                       help="Output directory (default: current directory)")
-    parser.add_argument("--duration", type=int, default=60,
-                       help="Test duration in seconds (default: 60)")
+    parser.add_argument(
+        "--results-dir",
+        type=Path,
+        default=Path("results"),
+        help="Root directory containing benchmark runs (default: results)",
+    )
+    parser.add_argument(
+        "--run-dirs",
+        nargs="+",
+        type=Path,
+        default=None,
+        help="Explicit benchmark run directories. If omitted the latest run per language under --results-dir/<language> is used.",
+    )
+    parser.add_argument(
+        "--languages",
+        nargs="+",
+        default=["java", "go", "rust"],
+        help="Languages to compare when auto-discovering runs (default: java go rust)",
+    )
+    parser.add_argument(
+        "--tests",
+        nargs="+",
+        default=["prime", "light", "kv"],
+        choices=["prime", "light", "kv"],
+        help="Test types to analyze (default: all tests)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("."),
+        help="Output directory for generated charts (default: current directory)",
+    )
+    parser.add_argument(
+        "--duration",
+        type=int,
+        default=None,
+        help="Optional X-axis limit in seconds. Defaults to the longest series length.",
+    )
     return parser.parse_args()
 
-def load_memory_data(results_dir: Path, language: str, test: str) -> List[Tuple[int, float]]:
-    """Load memory usage data from CSV file."""
-    memory_file = results_dir / f"{language.upper()}_{test}_mem.csv"
-    if not memory_file.exists():
-        print(f"Warning: Memory file not found for {language}: {memory_file}")
+def resolve_run_directories(args: argparse.Namespace) -> List[Tuple[str, Path]]:
+    runs: List[Tuple[str, Path]] = []
+
+    if args.run_dirs:
+        for run_dir in args.run_dirs:
+            payload = load_results_payload(run_dir)
+            language = payload.get("language") if isinstance(payload, dict) else None
+            if not language:
+                print(f"Warning: skipping {run_dir}, missing language metadata")
+                continue
+            runs.append((language, run_dir))
+        return runs
+
+    for language in args.languages:
+        language_root = args.results_dir / language
+        candidates: List[Path] = []
+        if language_root.is_dir():
+            candidates.extend(p for p in language_root.iterdir() if p.is_dir())
+        candidates.extend(p for p in args.results_dir.glob(f"{language}_*") if p.is_dir())
+        candidates = sorted(candidates, key=lambda path: path.name, reverse=True)
+
+        selected: Path | None = None
+        for candidate in candidates:
+            payload = load_results_payload(candidate)
+            if payload.get("language") == language:
+                selected = candidate
+                break
+        if selected is None:
+            print(f"Warning: no completed run found for {language}")
+            continue
+        runs.append((language, selected))
+
+    return runs
+
+
+def load_memory_data(run_dir: Path, language: str, test: str) -> List[Tuple[int, float]]:
+    """Load memory usage data from CSV file if available."""
+    candidates = [
+        run_dir / f"{test}_memory.csv",
+        run_dir / f"{test}_mem.csv",
+        run_dir / f"{language}_{test}_mem.csv",
+        run_dir / f"{language.upper()}_{test}_mem.csv",
+    ]
+
+    for memory_file in candidates:
+        if memory_file.exists():
+            data: List[Tuple[int, float]] = []
+            try:
+                with memory_file.open("r", encoding="utf-8") as handle:
+                    reader = csv.DictReader(handle)
+                    for row in reader:
+                        timestamp = int(row["timestamp"])
+                        memory_mb = float(row["memory_mb"])
+                        data.append((timestamp, memory_mb))
+            except Exception as exc:
+                print(f"Error reading memory data for {language} at {memory_file}: {exc}")
+                return []
+            return data
+
+    return []
+
+
+def load_timeseries(run_dir: Path, test: str) -> List[Tuple[int, float, float]]:
+    """Load throughput/latency timeseries for a test."""
+    timeseries_file = run_dir / f"{test}_timeseries.csv"
+    if not timeseries_file.exists():
+        print(f"Warning: Timeseries file not found: {timeseries_file}")
         return []
-    
-    data = []
+
+    data: List[Tuple[int, float, float]] = []
     try:
-        with open(memory_file, 'r') as f:
-            reader = csv.DictReader(f)
+        with timeseries_file.open("r", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
             for row in reader:
-                timestamp = int(row['timestamp'])
-                memory_mb = float(row['memory_mb'])
-                data.append((timestamp, memory_mb))
-    except Exception as e:
-        print(f"Error reading memory data for {language}: {e}")
+                second = int(row["second"])
+                throughput = float(row["throughput"])
+                latency = float(row["latency_ms"])
+                data.append((second, throughput, latency))
+    except Exception as exc:
+        print(f"Error reading timeseries from {timeseries_file}: {exc}")
         return []
-    
     return data
 
-def load_performance_data(results_dir: Path, language: str, test: str) -> Tuple[List[Tuple[int, float, float]], Dict[str, float]]:
-    """Load performance data from timeseries CSV and summary JSON."""
-    # Load timeseries data
-    timeseries_file = results_dir / f"{language}_{test}_timeseries.csv"
-    timeseries_data = []
-    
-    if timeseries_file.exists():
-        try:
-            with open(timeseries_file, 'r') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    second = int(row['second'])
-                    throughput = float(row['throughput'])
-                    latency = float(row['latency_ms'])
-                    timeseries_data.append((second, throughput, latency))
-        except Exception as e:
-            print(f"Error reading timeseries data for {language}: {e}")
-    else:
-        print(f"Warning: Timeseries file not found for {language}: {timeseries_file}")
-    
-    # Load summary data
-    summary_data = {}
-    result_files = list(results_dir.glob(f"{language}_*/results.json"))
-    if result_files:
-        try:
-            with open(result_files[0], 'r') as f:
-                results = json.load(f)
-                if test in results.get('summary', {}):
-                    summary_data = results['summary'][test]
-        except Exception as e:
-            print(f"Error reading summary data for {language}: {e}")
-    else:
-        print(f"Warning: No results.json found for {language}")
-    
-    return timeseries_data, summary_data
 
-def generate_synthetic_data(duration: int, language: str) -> Tuple[List[Tuple[int, float]], List[Tuple[int, float, float]]]:
-    """Generate synthetic data for demonstration when real data is not available."""
-    print(f"Generating synthetic data for {language}")
-    
-    # Base values vary by language
-    base_values = {
-        "java": {"memory": 150, "throughput": 2500, "latency": 2.5},
-        "go": {"memory": 50, "throughput": 3000, "latency": 1.8},
-        "rust": {"memory": 30, "throughput": 3500, "latency": 1.2},
-        "python": {"memory": 80, "throughput": 2000, "latency": 3.0}
-    }
-    
-    base = base_values.get(language.lower(), {"memory": 100, "throughput": 2500, "latency": 2.0})
-    
-    # Memory data (sampled every 5 seconds)
-    memory_data = []
-    for i in range(0, duration + 1, 5):
-        # Add some variance and potential GC spikes for Java
-        variance = np.random.normal(0, base["memory"] * 0.1)
-        if language.lower() == "java" and i % 20 == 0:  # GC spike
-            variance += base["memory"] * 0.3
-        memory_mb = max(10, base["memory"] + variance)
-        memory_data.append((i, memory_mb))
-    
-    # Performance data (per second)
-    perf_data = []
-    for i in range(duration):
-        # Add some realistic variance
-        throughput_variance = np.random.normal(0, base["throughput"] * 0.05)
-        latency_variance = np.random.normal(0, base["latency"] * 0.1)
-        
-        throughput = max(100, base["throughput"] + throughput_variance)
-        latency = max(0.5, base["latency"] + latency_variance)
-        
-        perf_data.append((i, throughput, latency))
-    
-    return memory_data, perf_data
+def load_results_payload(run_dir: Path) -> Dict[str, object]:
+    summary_path = run_dir / "results.json"
+    if not summary_path.exists():
+        print(f"Warning: summary file missing at {summary_path}")
+        return {}
 
-def plot_comparison(languages: List[str], test: str, duration: int, 
-                   memory_data: Dict[str, List[Tuple[int, float]]], 
-                   perf_data: Dict[str, List[Tuple[int, float, float]]],
-                   output_path: Path):
+    try:
+        with summary_path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except Exception as exc:
+        print(f"Error reading summary from {summary_path}: {exc}")
+        return {}
+
+
+def load_summary(run_dir: Path) -> Dict[str, Dict[str, float]]:
+    payload = load_results_payload(run_dir)
+    summary = payload.get("summary", {}) if isinstance(payload, dict) else {}
+    if not isinstance(summary, dict):
+        return {}
+    return summary
+
+
+def plot_comparison(
+    languages: List[str],
+    test: str,
+    duration_hint: int | None,
+    memory_data: Dict[str, List[Tuple[int, float]]],
+    perf_data: Dict[str, List[Tuple[int, float, float]]],
+    summary_data: Dict[str, Dict[str, float]],
+    output_path: Path,
+) -> None:
     """Create comparison plots for three metrics across languages."""
     
     # Set up the figure with 3 subplots
@@ -151,8 +194,7 @@ def plot_comparison(languages: List[str], test: str, duration: int,
                     linewidth=2, marker='o', markersize=3)
     
     ax1.legend()
-    ax1.set_xlim(0, duration)
-    
+
     # Plot 2: Throughput Over Time
     ax2.set_title('Throughput Over Time', fontweight='bold')
     ax2.set_xlabel('Time (seconds)')
@@ -167,7 +209,6 @@ def plot_comparison(languages: List[str], test: str, duration: int,
                     linewidth=2)
     
     ax2.legend()
-    ax2.set_xlim(0, duration)
     
     # Plot 3: Latency Over Time
     ax3.set_title('Latency Over Time', fontweight='bold')
@@ -183,7 +224,15 @@ def plot_comparison(languages: List[str], test: str, duration: int,
                     linewidth=2)
     
     ax3.legend()
-    ax3.set_xlim(0, duration)
+
+    max_time = max((series[-1][0] for series in perf_data.values() if series), default=0)
+    x_limit = duration_hint if duration_hint else max_time
+    if x_limit == 0:
+        x_limit = max_time if max_time else 1
+
+    ax1.set_xlim(0, x_limit)
+    ax2.set_xlim(0, x_limit)
+    ax3.set_xlim(0, x_limit)
     
     # Adjust layout and save
     plt.tight_layout()
@@ -197,51 +246,85 @@ def plot_comparison(languages: List[str], test: str, duration: int,
             throughput_values = [th for _, th, _ in perf_data[lang]]
             latency_values = [lat for _, _, lat in perf_data[lang]]
             memory_values = [m for _, m in memory_data.get(lang, [])]
-            
+
             avg_throughput = np.mean(throughput_values) if throughput_values else 0
             avg_latency = np.mean(latency_values) if latency_values else 0
             avg_memory = np.mean(memory_values) if memory_values else 0
-            
+
             print(f"{lang.upper()}:")
-            print(f"  Average Throughput: {avg_throughput:.2f} req/s")
-            print(f"  Average Latency: {avg_latency:.2f} ms")
+            summary = summary_data.get(lang, {})
+            if summary:
+                print(
+                    "  Reported Throughput: "
+                    f"{summary.get('throughput', 0.0):.2f} req/s"
+                )
+                print(
+                    "  Reported Latency avg/p95: "
+                    f"{summary.get('latency_avg', 0.0):.2f} / {summary.get('latency_p95', 0.0):.2f} ms"
+                )
+            else:
+                print(f"  Average Throughput: {avg_throughput:.2f} req/s")
+                print(f"  Average Latency: {avg_latency:.2f} ms")
             print(f"  Average Memory: {avg_memory:.2f} MB")
             print()
 
-def main():
+def generate_plots(
+    run_entries: List[Tuple[str, Path]],
+    tests: List[str],
+    output_dir: Path,
+    duration_hint: int | None,
+    *,
+    verbose: bool = True,
+) -> None:
+    if not run_entries:
+        if verbose:
+            print("No benchmark runs provided; skipping plot generation.")
+        return
+
+    languages_in_run = [language for language, _ in run_entries]
+    if verbose:
+        print(f"Generating comparison charts for languages: {languages_in_run}")
+        print(f"Tests: {tests}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    summary_cache: Dict[str, Dict[str, Dict[str, float]]] = {}
+    for language, run_dir in run_entries:
+        summary_cache[language] = load_summary(run_dir)
+
+    for test in tests:
+        if verbose:
+            print(f"\n=== Processing {test.upper()} test ===")
+        memory_data: Dict[str, List[Tuple[int, float]]] = {}
+        perf_data: Dict[str, List[Tuple[int, float, float]]] = {}
+        summary_slice: Dict[str, Dict[str, float]] = {}
+
+        for language, run_dir in run_entries:
+            memory_data[language] = load_memory_data(run_dir, language, test)
+            perf_data[language] = load_timeseries(run_dir, test)
+            summary_slice[language] = summary_cache.get(language, {}).get(test, {})
+
+        output_file = output_dir / f"comparison_{test}.png"
+        plot_comparison(
+            languages_in_run,
+            test,
+            duration_hint,
+            memory_data,
+            perf_data,
+            summary_slice,
+            output_file,
+        )
+
+
+def main() -> None:
     args = parse_args()
-    
-    print(f"Generating comparison charts for languages: {args.languages}")
-    print(f"Tests: {args.tests}")
-    print(f"Results directory: {args.results_dir}")
-    
-    # Create output directory if it doesn't exist
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Generate charts for each test type
-    for test in args.tests:
-        print(f"\n=== Processing {test.upper()} test ===")
-        
-        # Load data for each language
-        memory_data = {}
-        perf_data = {}
-        
-        for lang in args.languages:
-            # Try to load real data first
-            mem_data = load_memory_data(args.results_dir, lang, test)
-            timeseries_data, summary_data = load_performance_data(args.results_dir, lang, test)
-            
-            # If no real data available, generate synthetic data
-            if not mem_data and not timeseries_data:
-                print(f"No real data found for {lang}, generating synthetic data")
-                mem_data, timeseries_data = generate_synthetic_data(args.duration, lang)
-            
-            memory_data[lang] = mem_data
-            perf_data[lang] = timeseries_data
-        
-        # Generate the comparison plot for this test
-        output_file = args.output_dir / f"comparison_{test}.png"
-        plot_comparison(args.languages, test, args.duration, memory_data, perf_data, output_file)
+
+    runs = resolve_run_directories(args)
+    if not runs:
+        print("No benchmark runs found; nothing to plot.")
+        return
+
+    generate_plots(runs, args.tests, args.output_dir, args.duration)
 
 if __name__ == "__main__":
     main()

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -53,6 +54,42 @@ COMMANDS = {
 }
 
 
+def start_language_service(
+    language: str,
+    *,
+    host: str = "0.0.0.0",
+    port: int = 8080,
+    health_host: str = "127.0.0.1",
+    health_path: str = "/echo",
+    wait: bool = True,
+    ensure_free: bool = True,
+    log_dir: Path = LOGS_DIR,
+) -> tuple[subprocess.Popen, Path]:
+    """Start a service process and optionally wait for readiness."""
+
+    if ensure_free:
+        ensure_port_free(port)
+
+    cmd_builder = COMMANDS[language]
+    cmd, env, workdir = cmd_builder(host, port)
+
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{language}_{int(time.time())}.log"
+    print(f"Starting {language} service: {cmd}")
+
+    proc = popen(cmd, cwd=workdir, env=env, log_file=log_path)
+
+    if wait:
+        base_url = f"http://{health_host}:{port}"
+        print("Waiting for service health ...")
+        if not wait_for_health(base_url, health_path=health_path, port=port):
+            kill_tree(proc)
+            raise RuntimeError("Health check failed")
+        print(f"Service ready at http://{host}:{port}")
+
+    return proc, log_path
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Start a benchmark language service.")
     parser.add_argument("language", choices=COMMANDS.keys(), help="Service to start")
@@ -67,26 +104,21 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
-    ensure_port_free(args.port)
-
-    cmd_builder = COMMANDS[args.language]
-    cmd, env, workdir = cmd_builder(args.host, args.port)
-
-    log_path = LOGS_DIR / f"{args.language}_{int(time.time())}.log"
-    print(f"Starting {args.language} service: {cmd}")
-
-    proc = popen(cmd, cwd=workdir, env=env, log_file=log_path)
+    try:
+        proc, log_path = start_language_service(
+            args.language,
+            host=args.host,
+            port=args.port,
+            health_host=args.health_host,
+            health_path=args.health_path,
+            wait=not args.no_wait,
+            ensure_free=True,
+        )
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
     try:
-        if not args.no_wait:
-            base_url = f"http://{args.health_host}:{args.port}"
-            print("Waiting for service health ...")
-            if not wait_for_health(base_url, health_path=args.health_path, port=args.port):
-                kill_tree(proc)
-                print("Health check failed", file=sys.stderr)
-                return 1
-            print(f"Service ready at http://{args.host}:{args.port}")
-
         print(f"Logs: {log_path}")
         print("Press Ctrl+C to stop.")
         proc.wait()
