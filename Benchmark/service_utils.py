@@ -86,13 +86,25 @@ def kill_tree(proc: subprocess.Popen) -> None:
         pass
 
 
-def port_busy(port: int) -> bool:
-    sock = socket.socket()
-    sock.settimeout(0.2)
-    try:
-        return sock.connect_ex(("127.0.0.1", port)) == 0
-    finally:
-        sock.close()
+def _candidate_hosts(host: Optional[str]) -> list[str]:
+    if not host or host in {"0.0.0.0", "", "::"}:
+        return ["127.0.0.1", "::1"]
+    if host == "127.0.0.1":
+        return [host]
+    hosts = [host]
+    if host not in {"127.0.0.1", "::1"}:
+        hosts.append("127.0.0.1")
+    return hosts
+
+
+def port_busy(port: int, host: Optional[str] = None) -> bool:
+    for candidate in _candidate_hosts(host):
+        try:
+            with socket.create_connection((candidate, port), timeout=0.2):
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
 
 
 def pids_on_port(port: int) -> list[int]:
@@ -150,11 +162,11 @@ def pids_on_port(port: int) -> list[int]:
                     return []
 
 
-def ensure_port_free(port: int = 8080, wait_after_kill: float = 1.0) -> None:
-    if not port_busy(port):
+def ensure_port_free(port: int = 8080, host: Optional[str] = None, wait_after_kill: float = 1.0) -> None:
+    if not port_busy(port, host):
         return
 
-    print(f"!! port {port} busy, trying to free...")
+    print(f"!! port {port} busy for host {host or '*'}, trying to free...")
     for pid in pids_on_port(port):
         try:
             os.kill(pid, signal.SIGTERM)
@@ -162,7 +174,7 @@ def ensure_port_free(port: int = 8080, wait_after_kill: float = 1.0) -> None:
             pass
 
     for _ in range(20):
-        if not port_busy(port):
+        if not port_busy(port, host):
             print(f"-- port {port} is free (after SIGTERM)")
             return
         time.sleep(0.2)
@@ -174,7 +186,7 @@ def ensure_port_free(port: int = 8080, wait_after_kill: float = 1.0) -> None:
             pass
 
     time.sleep(wait_after_kill)
-    if port_busy(port):
+    if port_busy(port, host):
         raise RuntimeError(f"port {port} still busy after SIGKILL")
     print(f"-- port {port} is free (after SIGKILL)")
 
@@ -184,11 +196,17 @@ def curl_post_echo_ok(url: str) -> bool:
     return subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
 
-def wait_for_health(base_url: str, health_path: str = "/echo", port: Optional[int] = None, timeout: int = 120) -> bool:
+def wait_for_health(
+    base_url: str,
+    health_path: str = "/echo",
+    port: Optional[int] = None,
+    host: Optional[str] = None,
+    timeout: int = 120,
+) -> bool:
     if port is not None:
         deadline = time.time() + timeout
         while time.time() < deadline:
-            if port_busy(port):
+            if port_busy(port, host):
                 break
             time.sleep(0.2)
         else:

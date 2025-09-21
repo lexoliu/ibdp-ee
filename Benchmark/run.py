@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Tuple
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 
 try:
     from plot_comparison import generate_plots
@@ -142,12 +143,23 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _manager_host(args: argparse.Namespace) -> str:
+    parsed = urlparse(args.manager_url)
+    return parsed.hostname or "127.0.0.1"
+
+
 def compute_base_url(args: argparse.Namespace, language: str) -> str:
-    if args.fixed_base_url:
-        template = args.fixed_base_url
+    template = args.fixed_base_url or args.base_url_template
+
+    if args.client_host:
+        host = args.client_host
+    elif args.service_host not in {"0.0.0.0", "::", ""}:
+        host = args.service_host
     else:
-        template = args.base_url_template
-    host = args.client_host or args.service_host
+        host = _manager_host(args)
+    if host in {"0.0.0.0", "::", ""}:
+        host = _manager_host(args)
+
     port = args.client_port or args.service_port
     return template.format(language=language, host=host, port=port)
 
@@ -179,6 +191,26 @@ def _json_request(url: str, *, method: str = "GET", payload: Dict[str, object] |
 
 
 def start_remote_service(args: argparse.Namespace, language: str) -> Dict[str, object]:
+    status_url = args.manager_url + "/status"
+    try:
+        status_payload = _json_request(status_url, timeout=args.manager_timeout)
+    except RuntimeError:
+        status_payload = {}
+
+    if status_payload.get("running"):
+        meta = status_payload.get("meta", {})
+        same_service = (
+            meta.get("language") == language
+            and str(meta.get("host")) == str(args.service_host)
+            and int(meta.get("port", -1)) == int(args.service_port)
+        )
+        if same_service:
+            print("Service already running and healthy; skipping restart.")
+            return meta
+        else:
+            print("Different service running; stopping it before restart.")
+            stop_remote_service(args)
+
     payload = {
         "language": language,
         "host": args.service_host,
@@ -243,9 +275,11 @@ def main() -> int:
             host = args.health_host or "127.0.0.1"
         args.manager_url = f"http://{host}:{args.manager_port}"
 
+    manager_host = _manager_host(args)
+
     if not args.health_host:
         if args.service_host in {"0.0.0.0", "::", ""}:
-            args.health_host = "127.0.0.1"
+            args.health_host = manager_host
         else:
             args.health_host = args.service_host
 

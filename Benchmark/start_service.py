@@ -72,7 +72,7 @@ def start_language_service(
     """Start a service process and optionally wait for readiness."""
 
     if ensure_free:
-        ensure_port_free(port)
+        ensure_port_free(port, host=host)
 
     cmd_builder = COMMANDS[language]
     cmd, env, workdir = cmd_builder(host, port)
