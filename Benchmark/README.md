@@ -91,6 +91,9 @@ Common flags:
 - `--plots-dir` – Write comparison plots to a custom directory (defaults to
   `results/plots/<timestamp>`).
 - `--skip-plots` – Skip the plotting phase entirely (useful for headless runs).
+- `--manager-url` – Override the manager endpoint (defaults to
+  `http://<service-host>:<manager-port>`). Use with `--manager-port` if the
+  manager listens on a non-default port.
 - `--memory-interval` – Sampling interval when fetching memory usage from the
   manager (default `1` second).
 

@@ -77,7 +77,17 @@ def parse_args() -> argparse.Namespace:
         help="Optional prefix for run labels stored in results.json",
     )
 
-    parser.add_argument("--manager-url", default="http://127.0.0.1:9000", help="Service manager base URL")
+    parser.add_argument(
+        "--manager-url",
+        default=None,
+        help="Service manager base URL. Defaults to http://<service-host>:<manager-port>",
+    )
+    parser.add_argument(
+        "--manager-port",
+        type=int,
+        default=9000,
+        help="Port used when deriving the manager URL (default: 9000)",
+    )
     parser.add_argument("--service-host", default="0.0.0.0", help="Service bind host on manager side")
     parser.add_argument("--service-port", type=int, default=8080, help="Service bind port")
     parser.add_argument(
@@ -178,7 +188,7 @@ def start_remote_service(args: argparse.Namespace, language: str) -> Dict[str, o
         "wait": True,
         "ensure_free": True,
     }
-    url = args.manager_url.rstrip("/") + "/start"
+    url = args.manager_url + "/start"
     print(f"Requesting start of {language} via {url}")
     response = _json_request(url, method="POST", payload=payload, timeout=args.manager_timeout)
     meta = response.get("meta")
@@ -188,7 +198,7 @@ def start_remote_service(args: argparse.Namespace, language: str) -> Dict[str, o
 
 
 def stop_remote_service(args: argparse.Namespace) -> None:
-    url = args.manager_url.rstrip("/") + "/stop"
+    url = args.manager_url + "/stop"
     try:
         _json_request(url, method="POST", payload={}, timeout=args.manager_timeout)
     except RuntimeError as exc:
@@ -196,7 +206,7 @@ def stop_remote_service(args: argparse.Namespace) -> None:
 
 
 def make_memory_probe(args: argparse.Namespace) -> Callable[[], float | None]:
-    status_url = args.manager_url.rstrip("/") + "/status"
+    status_url = args.manager_url + "/status"
 
     def probe() -> float | None:
         try:
@@ -224,6 +234,28 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+
+    if args.manager_url:
+        args.manager_url = args.manager_url.rstrip("/")
+    else:
+        host = args.service_host
+        if host in {"0.0.0.0", "::", ""}:
+            host = args.health_host or "127.0.0.1"
+        args.manager_url = f"http://{host}:{args.manager_port}"
+
+    status_url = args.manager_url + "/status"
+    try:
+        _json_request(status_url, timeout=args.manager_timeout)
+    except RuntimeError as exc:
+        print(
+            f"Manager not reachable at {status_url}: {exc}. "
+            "Ensure manager.py is running or adjust --manager-url/--manager-port.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"Using manager API at {args.manager_url}")
+
     if args.debug and args.mode != "debug":
         print("Debug flag provided; forcing mode=debug")
         args.mode = "debug"
