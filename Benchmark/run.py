@@ -14,8 +14,17 @@ from typing import Callable, Dict, List, Tuple
 import urllib.error
 import urllib.request
 
+try:
+    from plot_comparison import generate_plots
+except ModuleNotFoundError as exc:
+    missing_module = exc.name if getattr(exc, "name", None) else str(exc)
+    print(
+        f"Missing Python module '{missing_module}'. Run install_client.sh to install Python dependencies.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
 from benchmark import DEFAULT_TEST_ORDER, MODE_DEFAULTS, run_benchmark
-from plot_comparison import generate_plots
 
 RESULTS_ROOT = Path(__file__).resolve().parent / "results"
 DEFAULT_LANGUAGES = ["java", "go", "rust"]

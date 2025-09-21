@@ -72,6 +72,17 @@ ensure_linux_cmd() {
   fi
 }
 
+install_python_packages() {
+  local packages=(matplotlib numpy)
+  if ! which_cmd python3; then
+    echo "python3 is required before installing Python packages" >&2
+    exit 1
+  fi
+  echo "Installing Python packages: ${packages[*]}"
+  python3 -m pip install --user --upgrade pip
+  python3 -m pip install --user "${packages[@]}"
+}
+
 detect_platform() {
   local uname
   uname=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -90,11 +101,13 @@ case "$PLATFORM" in
   linux)
     ensure_linux_cmd curl curl
     ensure_linux_cmd python3 python3 python3-venv python3-pip
+    install_python_packages
     install_k6_linux
     ;;
   macos)
     require brew brew '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
     require python3 python3 'brew install python'
+    install_python_packages
     require k6 k6 'brew install k6'
     ;;
   windows)

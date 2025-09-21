@@ -19,8 +19,9 @@ Quick setup helpers:
 
 - `install_server.sh` – Installs Java, Maven, Go, Rust, and curl on Linux/macOS
   hosts that will run the services and manager.
-- `install_client.sh` – Installs Python 3 and k6 on the machine that will run
-  the benchmark client.
+- `install_client.sh` – Installs Python 3, required Python libraries
+  (`matplotlib`, `numpy`), and k6 on the machine that will run the benchmark
+  client.
 
 ## Components
 
