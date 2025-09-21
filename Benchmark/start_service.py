@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-from service_utils import ensure_port_free, kill_tree, popen, wait_for_health
+from service_utils import curl_post_echo_ok, ensure_port_free, kill_tree, popen
 
 ROOT = Path(__file__).resolve().parent
 JAVA_DIR = ROOT / "java"
@@ -89,8 +89,23 @@ def start_language_service(
     if wait:
         effective_health_host = health_host or (host if host not in {"0.0.0.0", "::", ""} else "127.0.0.1")
         base_url = f"http://{effective_health_host}:{port}"
-        print(f"Waiting for service health at {base_url}{health_path} ... (logs: {log_path})")
-        if not wait_for_health(base_url, health_path=health_path, port=port):
+        target = base_url.rstrip("/") + health_path
+        print(f"Waiting for service health at {target} ... (logs: {log_path})")
+
+        deadline = time.time() + 120
+        ready = False
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                kill_tree(proc)
+                raise RuntimeError(
+                    f"Service exited early with code {proc.returncode}. See logs: {log_path}"
+                )
+            if curl_post_echo_ok(target):
+                ready = True
+                break
+            time.sleep(1)
+
+        if not ready:
             kill_tree(proc)
             raise RuntimeError("Health check failed")
         print(f"Service ready at http://{host}:{port}")

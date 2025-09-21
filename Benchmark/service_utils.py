@@ -113,7 +113,41 @@ def pids_on_port(port: int) -> list[int]:
             )
             return [int(pid) for pid in output.split() if pid.isdigit()]
         except Exception:
-            return []
+            try:
+                output = subprocess.check_output(
+                    ["ss", "-ltnp"],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
+                pids: list[int] = []
+                needle = f":{port}"
+                for line in output.splitlines():
+                    if needle not in line:
+                        continue
+                    if "pid=" in line:
+                        for segment in line.split():
+                            if "pid=" in segment:
+                                try:
+                                    pid_text = segment.split("pid=")[1].split(",")[0]
+                                    pids.append(int(pid_text))
+                                except Exception:
+                                    continue
+                return pids
+            except Exception:
+                try:
+                    output = subprocess.check_output(
+                        f"netstat -ltnp | grep :{port}",
+                        shell=True,
+                        text=True,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    pids = []
+                    for token in output.split():
+                        if "/" in token and token.split("/")[0].isdigit():
+                            pids.append(int(token.split("/")[0]))
+                    return pids
+                except Exception:
+                    return []
 
 
 def ensure_port_free(port: int = 8080, wait_after_kill: float = 1.0) -> None:
