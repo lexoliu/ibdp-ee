@@ -19,6 +19,7 @@ from plot_comparison import generate_plots
 RESULTS_ROOT = Path(__file__).resolve().parent / "results"
 DEFAULT_LANGUAGES = ["java", "go", "rust"]
 HTTP_TIMEOUT = 120
+REQUIRED_COMMANDS = ["python3", "k6"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -204,6 +205,19 @@ def make_memory_probe(args: argparse.Namespace) -> Callable[[], float | None]:
 
 def main() -> int:
     args = parse_args()
+    missing = [
+        cmd
+        for cmd in REQUIRED_COMMANDS
+        if subprocess.call(["which", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0
+    ]
+    if missing:
+        print(
+            "Missing required commands: "
+            + ", ".join(missing)
+            + ". Run install_client.sh and ensure dependencies are installed.",
+            file=sys.stderr,
+        )
+        return 1
     if args.debug and args.mode != "debug":
         print("Debug flag provided; forcing mode=debug")
         args.mode = "debug"

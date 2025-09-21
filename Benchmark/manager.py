@@ -16,6 +16,22 @@ from typing import Any, Dict
 from service_utils import kill_tree
 from start_service import LOGS_DIR, start_language_service
 
+REQUIRED_COMMANDS = ["java", "mvn", "go", "cargo", "curl"]
+
+
+def verify_dependencies() -> None:
+    missing = [
+        cmd
+        for cmd in REQUIRED_COMMANDS
+        if subprocess.call(["which", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0
+    ]
+    if missing:
+        raise RuntimeError(
+            "Missing required commands: "
+            + ", ".join(missing)
+            + ". Run install_server.sh and ensure dependencies are installed."
+        )
+
 
 def parse_bool(value: Any, default: bool) -> bool:
     if value is None:
@@ -219,6 +235,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    try:
+        verify_dependencies()
+    except RuntimeError as exc:
+        print(str(exc))
+        raise SystemExit(1)
     server = ThreadingHTTPServer((args.bind, args.port), RequestHandler)
     print(f"Service manager listening on http://{args.bind}:{args.port}")
     try:
