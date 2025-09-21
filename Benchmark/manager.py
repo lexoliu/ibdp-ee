@@ -20,6 +20,27 @@ from start_service import LOGS_DIR, start_language_service
 REQUIRED_COMMANDS = ["java", "mvn", "go", "cargo", "curl"]
 
 
+def _java_major_version() -> int | None:
+    try:
+        output = subprocess.check_output(["java", "-version"], stderr=subprocess.STDOUT, text=True)
+    except Exception:
+        return None
+    for line in output.splitlines():
+        if "version" in line:
+            parts = line.split('"')
+            if len(parts) >= 2:
+                version_text = parts[1]
+                try:
+                    major = int(version_text.split(".")[0])
+                except ValueError:
+                    try:
+                        major = int(version_text.split(".")[1])
+                    except Exception:
+                        return None
+                return major
+    return None
+
+
 def verify_dependencies() -> None:
     missing = [cmd for cmd in REQUIRED_COMMANDS if shutil.which(cmd) is None]
     if missing:
@@ -27,6 +48,13 @@ def verify_dependencies() -> None:
             "Missing required commands: "
             + ", ".join(missing)
             + ". Run install_server.sh and ensure dependencies are installed."
+        )
+
+    major = _java_major_version()
+    if major is None or major < 21:
+        raise RuntimeError(
+            "Java 21 required. Current java -version not detected or too old. "
+            "Run install_server.sh to install JDK 21."
         )
 
 

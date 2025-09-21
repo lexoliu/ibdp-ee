@@ -34,7 +34,7 @@ case "$PLATFORM" in
   linux)
     require curl curl 'sudo apt-get update && sudo apt-get install -y curl'
     require python3 python3 'sudo apt-get update && sudo apt-get install -y python3 python3-venv python3-pip'
-    require java java 'sudo apt-get update && sudo apt-get install -y default-jdk'
+    require java java 'sudo apt-get update && sudo apt-get install -y openjdk-21-jdk'
     require mvn mvn 'sudo apt-get update && sudo apt-get install -y maven'
     require go go 'sudo apt-get update && sudo apt-get install -y golang-go'
     require cargo cargo 'sudo apt-get update && sudo apt-get install -y cargo'
@@ -42,7 +42,7 @@ case "$PLATFORM" in
   macos)
     require brew brew '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
     require python3 python3 'brew install python'
-    require java java 'brew install openjdk'
+    require java java 'brew install openjdk@21 && sudo ln -sfn /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk /Library/Java/JavaVirtualMachines/openjdk-21.jdk'
     require mvn mvn 'brew install maven'
     require go go 'brew install go'
     require cargo cargo 'brew install rustup-init && rustup-init -y'
