@@ -42,6 +42,11 @@ def parse_args() -> argparse.Namespace:
         default="normal",
         help="Benchmark mode controlling duration and retries",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Shortcut for --mode debug (overrides --mode if provided)",
+    )
     parser.add_argument("--vus", type=int, default=64, help="Number of virtual users (default: 64)")
     parser.add_argument(
         "--duration",
@@ -175,6 +180,9 @@ def stop_remote_service(args: argparse.Namespace) -> None:
 
 def main() -> int:
     args = parse_args()
+    if args.debug and args.mode != "debug":
+        print("Debug flag provided; forcing mode=debug")
+        args.mode = "debug"
     pipeline_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
     plots_dir = args.plots_dir or (RESULTS_ROOT / "plots" / pipeline_id)
