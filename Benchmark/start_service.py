@@ -84,7 +84,10 @@ def start_language_service(
     print(f"Starting {language} service: {cmd}")
 
     prefix = f"[{language}] "
-    proc = popen(cmd, cwd=workdir, env=env, log_file=log_path, prefix=prefix)
+    try:
+        proc = popen(cmd, cwd=workdir, env=env, log_file=log_path, prefix=prefix)
+    except Exception:
+        raise
 
     if wait:
         effective_health_host = health_host or (host if host not in {"0.0.0.0", "::", ""} else "127.0.0.1")
