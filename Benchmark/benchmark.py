@@ -15,6 +15,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import Callable, Dict, List, Tuple
 
 ROOT = Path(__file__).resolve().parent
@@ -92,7 +93,16 @@ def wait_for_service(base_url: str, timeout: int) -> bool:
     return False
 
 
-def run_k6(test: str, script: Path, base_url: str, output_dir: Path, vus: int, duration: str, attempt: int, total_attempts: int) -> Tuple[Path, Path]:
+def run_k6(
+    test: str,
+    script: Path,
+    base_url: str,
+    output_dir: Path,
+    vus: int,
+    duration: str,
+    attempt: int,
+    total_attempts: int,
+) -> Tuple[Path, Path]:
     json_path = output_dir / f"{test}.jsonl"
     summary_path = output_dir / f"{test}_summary.json"
 
@@ -114,8 +124,11 @@ def run_k6(test: str, script: Path, base_url: str, output_dir: Path, vus: int, d
     env.setdefault("BASE_URL", base_url)
     env.setdefault("K6_BASE_URL", base_url)
 
+    period = compute_json_period(duration)
+    env.setdefault("K6_OUT_JSON_PERIOD", period)
+
     attempt_note = f" (attempt {attempt}/{total_attempts})" if total_attempts > 1 else ""
-    print(f"Running {' '.join(cmd)}{attempt_note}")
+    print(f"Running {' '.join(cmd)}{attempt_note} [json period {period}]")
     proc = subprocess.run(cmd, env=env)
     if proc.returncode not in (0, 99):
         raise RuntimeError(f"k6 failed on {test} (exit {proc.returncode})")
@@ -437,3 +450,37 @@ if __name__ == "__main__":
         sys.exit(main())
     except KeyboardInterrupt:
         sys.exit(130)
+TARGET_TIMESERIES_SAMPLES = 600
+
+
+_DURATION_RE = re.compile(r"(?P<value>\d+(?:\.\d+)?)(?P<unit>ms|s|m|h)")
+
+
+def parse_duration_seconds(duration: str) -> float:
+    total = 0.0
+    for match in _DURATION_RE.finditer(duration.lower()):
+        value = float(match.group("value"))
+        unit = match.group("unit")
+        if unit == "ms":
+            total += value / 1000.0
+        elif unit == "s":
+            total += value
+        elif unit == "m":
+            total += value * 60.0
+        elif unit == "h":
+            total += value * 3600.0
+    return total
+
+
+def compute_json_period(duration: str, target_samples: int = TARGET_TIMESERIES_SAMPLES) -> str:
+    seconds = parse_duration_seconds(duration)
+    if seconds <= 0 or target_samples <= 0:
+        return "1s"
+    raw_period = max(seconds / float(target_samples), 0.1)
+    if raw_period >= 1.0:
+        rounded = round(raw_period, 3)
+        if abs(rounded - round(rounded)) < 1e-3:
+            return f"{int(round(rounded))}s"
+        return f"{rounded}s"
+    millis = max(int(round(raw_period * 1000)), 1)
+    return f"{millis}ms"
