@@ -94,6 +94,8 @@ Common flags:
 - `--manager-url` – Override the manager endpoint (defaults to
   `http://<service-host>:<manager-port>`). Use with `--manager-port` if the
   manager listens on a non-default port.
+- `--health-host` – Hostname/IP the manager uses for health checks. Defaults to
+  the service bind host (or `127.0.0.1` when binding to all interfaces).
 - `--memory-interval` – Sampling interval when fetching memory usage from the
   manager (default `1` second).
 

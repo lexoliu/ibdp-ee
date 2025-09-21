@@ -92,8 +92,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--service-port", type=int, default=8080, help="Service bind port")
     parser.add_argument(
         "--health-host",
-        default="127.0.0.1",
-        help="Host the manager should use for health checks",
+        default=None,
+        help="Host the manager should use for health checks (defaults to service host)",
     )
     parser.add_argument("--health-path", default="/echo", help="Health check path (default: /echo)")
 
@@ -242,6 +242,12 @@ def main() -> int:
         if host in {"0.0.0.0", "::", ""}:
             host = args.health_host or "127.0.0.1"
         args.manager_url = f"http://{host}:{args.manager_port}"
+
+    if not args.health_host:
+        if args.service_host in {"0.0.0.0", "::", ""}:
+            args.health_host = "127.0.0.1"
+        else:
+            args.health_host = args.service_host
 
     status_url = args.manager_url + "/status"
     try:

@@ -59,7 +59,7 @@ def start_language_service(
     *,
     host: str = "0.0.0.0",
     port: int = 8080,
-    health_host: str = "127.0.0.1",
+    health_host: str | None = None,
     health_path: str = "/echo",
     wait: bool = True,
     ensure_free: bool = True,
@@ -72,6 +72,8 @@ def start_language_service(
 
     cmd_builder = COMMANDS[language]
     cmd, env, workdir = cmd_builder(host, port)
+    env.setdefault("SERVER_HOST", host)
+    env.setdefault("SERVER_PORT", str(port))
 
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{language}_{int(time.time())}.log"
@@ -80,7 +82,8 @@ def start_language_service(
     proc = popen(cmd, cwd=workdir, env=env, log_file=log_path)
 
     if wait:
-        base_url = f"http://{health_host}:{port}"
+        effective_health_host = health_host or (host if host not in {"0.0.0.0", "::", ""} else "127.0.0.1")
+        base_url = f"http://{effective_health_host}:{port}"
         print("Waiting for service health ...")
         if not wait_for_health(base_url, health_path=health_path, port=port):
             kill_tree(proc)
@@ -95,7 +98,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("language", choices=COMMANDS.keys(), help="Service to start")
     parser.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8080, help="Bind port (default: 8080)")
-    parser.add_argument("--health-host", default="127.0.0.1", help="Host to use for local health check")
+    parser.add_argument("--health-host", default=None, help="Host to use for local health check (defaults to --host)")
     parser.add_argument("--health-path", default="/echo", help="Health check path (default: /echo)")
     parser.add_argument("--no-wait", action="store_true", help="Do not wait for health check")
     return parser.parse_args()
