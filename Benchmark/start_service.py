@@ -83,7 +83,8 @@ def start_language_service(
     log_path = log_dir / f"{language}_{int(time.time())}.log"
     print(f"Starting {language} service: {cmd}")
 
-    proc = popen(cmd, cwd=workdir, env=env, log_file=log_path)
+    prefix = f"[{language}] "
+    proc = popen(cmd, cwd=workdir, env=env, log_file=log_path, prefix=prefix)
 
     if wait:
         effective_health_host = health_host or (host if host not in {"0.0.0.0", "::", ""} else "127.0.0.1")

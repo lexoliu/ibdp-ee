@@ -9,28 +9,69 @@ import shlex
 import signal
 import socket
 import subprocess
+import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
 
 
-def popen(cmd: str, cwd: Optional[Path] = None, env: Optional[dict] = None, log_file: Optional[Path] = None) -> subprocess.Popen:
-    stdout = log_file.open("w") if log_file else None
+def popen(
+    cmd: str,
+    cwd: Optional[Path] = None,
+    env: Optional[dict] = None,
+    log_file: Optional[Path] = None,
+    prefix: Optional[str] = None,
+) -> subprocess.Popen:
+    """Spawn a shell command with optional log teeing and prefixed stdout."""
+
+    file_handle = None
+    if log_file and prefix is None:
+        file_handle = log_file.open("w")
     try:
-        return subprocess.Popen(
-            cmd,
-            cwd=str(cwd) if cwd else None,
-            env=env,
-            shell=True,
-            stdout=stdout or subprocess.PIPE,
-            stderr=subprocess.STDOUT if stdout else subprocess.PIPE,
-            preexec_fn=os.setsid if os.name != "nt" else None,
-            text=True if stdout is None else False,
-        )
+        if prefix is None:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(cwd) if cwd else None,
+                env=env,
+                shell=True,
+                stdout=file_handle or subprocess.PIPE,
+                stderr=subprocess.STDOUT if file_handle else subprocess.PIPE,
+                preexec_fn=os.setsid if os.name != "nt" else None,
+                text=True if file_handle is None else False,
+            )
+        else:
+            log_handle = log_file.open("w") if log_file else None
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(cwd) if cwd else None,
+                env=env,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                preexec_fn=os.setsid if os.name != "nt" else None,
+                text=True,
+            )
+
+            def _pump() -> None:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    if log_handle:
+                        log_handle.write(line)
+                        log_handle.flush()
+                    sys.stdout.write(f"{prefix}{line}")
+                    sys.stdout.flush()
+                if log_handle:
+                    log_handle.close()
+
+            thread = threading.Thread(target=_pump, daemon=True)
+            thread.start()
+            setattr(proc, "_prefix_thread", thread)
     except Exception:
-        if stdout:
-            stdout.close()
+        if file_handle:
+            file_handle.close()
         raise
+    return proc
 
 
 def kill_tree(proc: subprocess.Popen) -> None:
