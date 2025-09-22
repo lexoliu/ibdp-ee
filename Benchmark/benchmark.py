@@ -62,10 +62,8 @@ def convert_jsonl_to_csv(jsonl_path: Path, csv_path: Path) -> None:
         raise RuntimeError(f"JSONL converter script missing: {JSONL_SCRIPT_PATH}")
 
     base_cmd = _locate_rust_script()
-    if base_cmd[0].endswith("rust-script"):
-        cmd = base_cmd + ["-O", str(JSONL_SCRIPT_PATH), "--", str(jsonl_path), str(csv_path)]
-    else:
-        cmd = base_cmd + ["--release", str(JSONL_SCRIPT_PATH), "--", str(jsonl_path), str(csv_path)]
+    cmd = base_cmd + [str(JSONL_SCRIPT_PATH), "--", str(jsonl_path), str(csv_path)] # Rust-script use release mode by default
+
 
     proc = subprocess.run(cmd, cwd=str(ROOT))
     if proc.returncode != 0:

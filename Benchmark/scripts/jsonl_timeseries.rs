@@ -1,5 +1,10 @@
 #!/usr/bin/env rust-script
-//! cargo-deps: serde_json="1.0.143", time = { version = "0.3.37", features = ["parsing"] }
+//! ```cargo
+//! [dependencies]
+//! serde_json = "1.0.143"
+//! time = { version = "0.3.37", features = ["parsing"] }
+//! ```
+//!
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -26,8 +31,12 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
-    let input_path = args.next().ok_or("usage: jsonl_timeseries <input.jsonl> <output.csv>")?;
-    let output_path = args.next().ok_or("usage: jsonl_timeseries <input.jsonl> <output.csv>")?;
+    let input_path = args
+        .next()
+        .ok_or("usage: jsonl_timeseries <input.jsonl> <output.csv>")?;
+    let output_path = args
+        .next()
+        .ok_or("usage: jsonl_timeseries <input.jsonl> <output.csv>")?;
     if args.next().is_some() {
         return Err("usage: jsonl_timeseries <input.jsonl> <output.csv>".into());
     }
