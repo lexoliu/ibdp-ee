@@ -15,10 +15,11 @@ function generateThresholds() {
   return thresholds;
 }
 
-export let options = { 
-  vus: 50, 
+export let options = {
+  vus: 50,
   duration: duration,
-  thresholds: generateThresholds()
+  thresholds: generateThresholds(),
+  summaryTrendStats: ['avg', 'med', 'p(90)', 'p(95)', 'p(99)'],
 };
 
 const base = __ENV.K6_BASE_URL || __ENV.BASE_URL || "http://127.0.0.1:8080";
@@ -47,10 +48,11 @@ export function handleSummary(data) {
   for (let s = 0; s <= DURATION_SEC; s++) {
     const sec = s.toString().padStart(6, '0');
     const count = metrics[`http_reqs{sec:${sec}}`]?.values?.count ?? 0;
-    const avg = metrics[`http_req_duration{sec:${sec}}`]?.values?.avg ?? '';
-    const p50 = metrics[`http_req_duration{sec:${sec}}`]?.values?.['p(50)'] ?? '';
-    const p90 = metrics[`http_req_duration{sec:${sec}}`]?.values?.['p(90)'] ?? '';
-    const p99 = metrics[`http_req_duration{sec:${sec}}`]?.values?.['p(99)'] ?? '';
+    const durationStats = metrics[`http_req_duration{sec:${sec}}`]?.values ?? {};
+    const avg = durationStats.avg ?? '';
+    const p50 = durationStats['p(50)'] ?? durationStats.med ?? '';
+    const p90 = durationStats['p(90)'] ?? '';
+    const p99 = durationStats['p(99)'] ?? '';
     if (count > 0) {
       csv += `${s},${count},${avg || 0},${p50 || 0},${p90 || 0},${p99 || 0}\n`;
     }
