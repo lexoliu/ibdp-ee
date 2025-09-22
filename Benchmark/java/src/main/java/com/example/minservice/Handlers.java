@@ -3,6 +3,7 @@ package com.example.minservice;
 import org.json.JSONObject;
 import org.json.XML;
 import org.springframework.http.MediaType;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.BodyExtractors;
 import org.springframework.web.reactive.function.server.*;
@@ -141,14 +142,17 @@ public class Handlers {
 
   public Mono<ServerResponse> kvSet(ServerRequest req) {
     String id = req.pathVariable("id");
-    return req.body(BodyExtractors.toDataBuffers())
-        .reduce(new byte[0], (acc, buf) -> {
-          byte[] bs = acc;
-          byte[] next = new byte[bs.length + buf.readableByteCount()];
-          System.arraycopy(bs, 0, next, 0, bs.length);
-          buf.read(next, bs.length, buf.readableByteCount());
-          return next;
+    return DataBufferUtils.join(req.body(BodyExtractors.toDataBuffers()))
+        .map(buffer -> {
+          try {
+            byte[] bytes = new byte[buffer.readableByteCount()];
+            buffer.read(bytes);
+            return bytes;
+          } finally {
+            DataBufferUtils.release(buffer);
+          }
         })
+        .defaultIfEmpty(new byte[0])
         .flatMap(bytes -> {
           kv.set(id, new String(bytes, StandardCharsets.UTF_8));
           return ServerResponse.ok().contentType(MediaType.TEXT_PLAIN)
