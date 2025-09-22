@@ -10,6 +10,20 @@ use axum::{routing::*, Router};
 use crate::kv::Engine;
 mod kv;
 mod template;
+
+fn logging_enabled() -> bool {
+    match env::var("SERVER_LOG") {
+        Ok(value) => {
+            let text = value.trim().to_ascii_lowercase();
+            matches!(
+                text.as_str(),
+                "1" | "true" | "yes" | "on" | "log" | "debug"
+            )
+        }
+        Err(_) => false,
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let host = env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".into());
@@ -18,7 +32,9 @@ async fn main() {
 
     let app = router();
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    println!("listening on http://{}", addr);
+    if logging_enabled() {
+        println!("listening on http://{}", addr);
+    }
     axum::serve(listener, app).await.unwrap();
 }
 

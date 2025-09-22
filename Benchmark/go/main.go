@@ -1,16 +1,16 @@
 package main
 
 import (
-	"encoding/json"
-	"encoding/xml"
-	"io"
-	"log"
-	"math/big"
-	"net/http"
-	"os"
-	"strings"
-	"sync"
-	"time"
+    "encoding/json"
+    "encoding/xml"
+    "io"
+    "log"
+    "math/big"
+    "net/http"
+    "os"
+    "strings"
+    "sync"
+    "time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -152,6 +152,17 @@ func toString(v any) string {
 		b, _ := json.Marshal(x)
 		return string(b)
 	}
+}
+
+func loggingEnabled() bool {
+	if value, ok := os.LookupEnv("SERVER_LOG"); ok {
+		value = strings.TrimSpace(strings.ToLower(value))
+		if value == "" {
+			return false
+		}
+		return value != "0" && value != "false" && value != "off" && value != "no"
+	}
+	return false
 }
 
 /* =========================
@@ -302,11 +313,13 @@ func isPrimeUint64(n uint64) bool {
    Router & Main
    ========================= */
 
-func buildRouter() http.Handler {
+func buildRouter(enableLogging bool) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
+	if enableLogging {
+		r.Use(middleware.Logger)
+	}
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
 
@@ -337,8 +350,14 @@ func main() {
 	}
 	addr := logHost + ":" + port
 
-	log.Printf("listening on http://%s\n", addr)
-	if err := http.ListenAndServe(addr, buildRouter()); err != nil {
+	enableLogging := loggingEnabled()
+	if !enableLogging {
+		log.SetOutput(io.Discard)
+	}
+	if enableLogging {
+		log.Printf("listening on http://%s\n", addr)
+	}
+	if err := http.ListenAndServe(addr, buildRouter(enableLogging)); err != nil {
 		log.Fatal(err)
 	}
 }

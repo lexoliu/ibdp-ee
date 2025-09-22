@@ -139,6 +139,10 @@ attempt's artifacts. In `debug` mode only a single short run is executed.
 Service stdout/stderr are captured into `results/logs/<language>_<timestamp>.log`
 so you can inspect startup issues or crashes after the run completes.
 
+All services start in quiet mode to avoid skewing benchmarks with console I/O.
+Set the `SERVER_LOG=1` environment variable (or `true`/`on`) before launching a
+service if you need verbose startup or request logging.
+
 ## Troubleshooting
 
 - Ensure the manager host can reach language build tools and has open ports.

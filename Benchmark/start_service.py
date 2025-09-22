@@ -26,6 +26,11 @@ def java_command(host: str, port: int) -> tuple[str, dict, Path]:
     run_args = [
         f"--server.port={port}",
         f"--server.address={host if host not in {'0.0.0.0', '::', ''} else '0.0.0.0'}",
+        "--spring.main.banner-mode=off",
+        "--spring.main.log-startup-info=false",
+        "--logging.level.root=error",
+        "--logging.level.org.springframework=error",
+        "--logging.level.reactor.netty=error",
     ]
     cmd = (
         "mvn -q -DskipTests "
@@ -34,6 +39,7 @@ def java_command(host: str, port: int) -> tuple[str, dict, Path]:
         "spring-boot:run"
     )
     env = os.environ.copy()
+    env.setdefault("SERVER_LOG", "0")
     return cmd, env, JAVA_DIR
 
 
@@ -41,6 +47,7 @@ def go_command(host: str, port: int) -> tuple[str, dict, Path]:
     env = os.environ.copy()
     env["SERVER_HOST"] = host
     env["SERVER_PORT"] = str(port)
+    env.setdefault("SERVER_LOG", "0")
     return "go run .", env, GO_DIR
 
 
@@ -48,6 +55,7 @@ def rust_command(host: str, port: int) -> tuple[str, dict, Path]:
     env = os.environ.copy()
     env["SERVER_HOST"] = host
     env["SERVER_PORT"] = str(port)
+    env.setdefault("SERVER_LOG", "0")
     return "cargo run --release", env, RUST_DIR
 
 
