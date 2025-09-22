@@ -174,7 +174,7 @@ Mark-and-sweep alternates two passes. A mark phase follows pointers from the roo
 
 \subsubsection{Modern Concurrent Collection}
 
-Contemporary collectors use tri-color marking with write barriers to maintain consistency during concurrent collection. Most work occurs concurrently with application threads, limiting stop-the-world pauses to sub-millisecond ranges (e.g., 0.08--0.31 ms in our measurements) for brief phases such as root scanning. Heap sizing trades collection frequency against pause duration, significantly impacting throughput and latency.
+Contemporary collectors use tri-color marking with write barriers to maintain consistency during concurrent collection. Most work occurs concurrently with application threads, limiting stop-the-world pauses to sub-millisecond ranges (e.g., 0.08--0.31 ms in our measurements) for brief phases such as root scanning. Go's concurrent collector exemplifies this approach, achieving low-latency collection through concurrent marking and minimal stop-the-world phases. Heap sizing trades collection frequency against pause duration, significantly impacting throughput and latency.
 
 \subsection{The Performance Overhead of Garbage Collectors}
 "No silver bullet" applies here as well: removing manual memory bugs means accepting some runtime cost. Garbage collectors can introduce brief pauses, reserve extra heap space, and consume CPU cycles to locate dead objects. Quantifying when those effects matter is the empirical focus of the remainder of this essay.
