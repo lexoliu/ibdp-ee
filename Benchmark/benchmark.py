@@ -80,7 +80,7 @@ TEST_SCRIPTS = {
 DEFAULT_TEST_ORDER = ["prime", "light", "kv"]
 
 MODE_DEFAULTS = {
-    "debug": {"duration": "10s", "repeats": 1},
+    "debug": {"duration": "2s", "repeats": 1},
     "normal": {"duration": "10m", "repeats": 3},
 }
 
