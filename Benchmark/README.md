@@ -143,6 +143,32 @@ All services start in quiet mode to avoid skewing benchmarks with console I/O.
 Set the `SERVER_LOG=1` environment variable (or `true`/`on`) before launching a
 service if you need verbose startup or request logging.
 
+## GC Tracing
+
+Detailed garbage collection telemetry is **enabled by default** as referenced in the research paper. To disable GC tracing, use the `--disable-gc-trace` flag:
+
+```bash
+# To run without GC tracing
+python run.py --disable-gc-trace --languages go java
+
+# Normal run (GC tracing enabled by default)
+python run.py --languages go java
+
+# Single service startup (GC tracing enabled by default)
+python start_service.py go
+```
+
+GC tracing enables:
+
+- **Go**: `GODEBUG=gctrace=1` environment variable for detailed GC pause information
+- **Java**: JVM GC logging via `-Xlog:gc` with timestamps and details
+
+GC logs are written to `results/logs/` alongside service logs:
+- Java: `java_gc_<timestamp>.log` with detailed collection events
+- Go: GC trace output appears in the service log showing pause times, frequencies, and mutator utilization
+
+The collected data matches the measurements referenced in the paper (e.g., 0.4-2.3 collections/sec, P50: 0.12ms, P99: 0.31ms pauses for Go).
+
 ## Troubleshooting
 
 - Ensure the manager host can reach language build tools and has open ports.

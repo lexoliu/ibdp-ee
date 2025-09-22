@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import threading
 import time
+from pathlib import Path
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict
@@ -167,6 +168,7 @@ class ServiceManager:
         health_path = config.get("health_path") or config.get("healthPath") or "/echo"
         wait = parse_bool(config.get("wait"), True)
         ensure_free = parse_bool(config.get("ensure_free"), True)
+        # GC tracing is now always enabled
 
         with self._lock:
             if self._is_process_alive():
@@ -177,7 +179,7 @@ class ServiceManager:
                 self._process = None
                 self._meta = {}
 
-            proc, log_path = start_language_service(
+            proc, log_path, extras = start_language_service(
                 language,
                 host=host,
                 port=port,
@@ -198,6 +200,11 @@ class ServiceManager:
                 "started_at": time.time(),
                 "pid": proc.pid,
             }
+            for key, value in extras.items():
+                if isinstance(value, Path):
+                    meta[key] = str(value)
+                else:
+                    meta[key] = value
             rss = _process_memory_mb(proc.pid)
             if rss is not None:
                 meta["memory_mb"] = rss

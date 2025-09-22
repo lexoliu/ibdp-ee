@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any, Dict
 
 from service_utils import curl_post_echo_ok, ensure_port_free, kill_tree, popen
 
@@ -21,8 +22,15 @@ LOGS_DIR = ROOT / "results" / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def java_command(host: str, port: int) -> tuple[str, dict, Path]:
+def java_command(host: str, port: int) -> tuple[str, dict, Path, Dict[str, Any]]:
+    # Base JVM arguments
     jvm_args = "-Xms4g -Xmx24g -XX:+UseG1GC -XX:+AlwaysPreTouch"
+    
+    # Force enable GC logging for all benchmarks
+    env = os.environ.copy()
+    gc_log_path = LOGS_DIR / f"java_gc_{int(time.time())}.log"
+    jvm_args += f" -Xlog:gc*:{gc_log_path}:time,level,tags"
+    
     run_args = [
         f"--server.port={port}",
         f"--server.address={host if host not in {'0.0.0.0', '::', ''} else '0.0.0.0'}",
@@ -38,9 +46,9 @@ def java_command(host: str, port: int) -> tuple[str, dict, Path]:
         f"-Dspring-boot.run.jvmArguments='{jvm_args}' "
         "spring-boot:run"
     )
-    env = os.environ.copy()
     env.setdefault("SERVER_LOG", "0")
-    return cmd, env, JAVA_DIR
+    extras: Dict[str, Any] = {"gc_log_path": gc_log_path}
+    return cmd, env, JAVA_DIR, extras
 
 
 def go_command(host: str, port: int) -> tuple[str, dict, Path]:
@@ -48,6 +56,9 @@ def go_command(host: str, port: int) -> tuple[str, dict, Path]:
     env["SERVER_HOST"] = host
     env["SERVER_PORT"] = str(port)
     env.setdefault("SERVER_LOG", "0")
+    # Force enable GC tracing for all benchmarks
+    env["GODEBUG"] = "gctrace=1"
+    
     return "go run .", env, GO_DIR
 
 
@@ -76,19 +87,29 @@ def start_language_service(
     wait: bool = True,
     ensure_free: bool = True,
     log_dir: Path = LOGS_DIR,
-) -> tuple[subprocess.Popen, Path]:
+) -> tuple[subprocess.Popen, Path, Dict[str, Any]]:
     """Start a service process and optionally wait for readiness."""
 
     if ensure_free:
         ensure_port_free(port, host=host)
 
     cmd_builder = COMMANDS[language]
-    cmd, env, workdir = cmd_builder(host, port)
+    cmd_result = cmd_builder(host, port)
+    try:
+        cmd, env, workdir, extras = cmd_result  # type: ignore[misc]
+    except ValueError:
+        cmd, env, workdir = cmd_result  # type: ignore[misc]
+        extras = {}
     env.setdefault("SERVER_HOST", host)
     env.setdefault("SERVER_PORT", str(port))
+    
+    # GC tracing is now forced enabled for all benchmarks
 
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{language}_{int(time.time())}.log"
+    extras = dict(extras)
+    if language == "go" and "gc_log_path" not in extras:
+        extras["gc_log_path"] = log_path
     print(f"Starting {language} service: {cmd}")
 
     prefix = f"[{language}] "
@@ -121,7 +142,7 @@ def start_language_service(
             raise RuntimeError("Health check failed")
         print(f"Service ready at http://{host}:{port}")
 
-    return proc, log_path
+    return proc, log_path, extras
 
 
 def parse_args() -> argparse.Namespace:
@@ -132,14 +153,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--health-host", default=None, help="Host to use for local health check (defaults to --host)")
     parser.add_argument("--health-path", default="/echo", help="Health check path (default: /echo)")
     parser.add_argument("--no-wait", action="store_true", help="Do not wait for health check")
+    parser.add_argument("--disable-gc-trace", action="store_true", help="Disable GC tracing (enabled by default)")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    
+    # Set environment variable for GC tracing (enabled by default)
+    if not args.disable_gc_trace:
+        os.environ["ENABLE_GC_TRACE"] = "1"
 
     try:
-        proc, log_path = start_language_service(
+        proc, log_path, extras = start_language_service(
             args.language,
             host=args.host,
             port=args.port,
@@ -154,6 +180,9 @@ def main() -> int:
 
     try:
         print(f"Logs: {log_path}")
+        gc_log_path = extras.get("gc_log_path")
+        if gc_log_path and gc_log_path != log_path:
+            print(f"GC logs: {gc_log_path}")
         print("Press Ctrl+C to stop.")
         proc.wait()
         return proc.returncode or 0

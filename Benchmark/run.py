@@ -27,7 +27,7 @@ except ModuleNotFoundError as exc:
     )
     sys.exit(1)
 
-from benchmark import DEFAULT_TEST_ORDER, MODE_DEFAULTS, run_benchmark
+from benchmark import DEFAULT_TEST_ORDER, MODE_DEFAULTS, run_benchmark_with_retry
 from notifications import EmailNotifier
 
 RESULTS_ROOT = Path(__file__).resolve().parent / "results"
@@ -143,6 +143,11 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="Seconds between memory samples while a test is running (default: 1.0)",
     )
+    parser.add_argument(
+        "--disable-gc-trace",
+        action="store_true", 
+        help="Disable GC tracing for Go and Java (enabled by default)"
+    )
 
     return parser.parse_args()
 
@@ -223,6 +228,7 @@ def start_remote_service(args: argparse.Namespace, language: str) -> Dict[str, o
         "health_path": args.health_path,
         "wait": True,
         "ensure_free": True,
+        "enable_gc_trace": not args.disable_gc_trace,
     }
     url = args.manager_url + "/start"
     print(f"Requesting start of {language} via {url}")
@@ -326,7 +332,7 @@ def main() -> int:
             try:
                 service_meta = start_remote_service(args, language)
                 label = f"{args.label_prefix}-{language}" if args.label_prefix else f"{language}-{args.mode}"
-                output_dir, summary = run_benchmark(
+                output_dir, summary = run_benchmark_with_retry(
                     language,
                     base_url,
                     args.tests,

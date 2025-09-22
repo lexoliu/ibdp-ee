@@ -388,7 +388,7 @@ Latency characteristics remained consistent across languages, with P99 latencies
     \label{fig:kv-performance}
 \end{figure}
 
-The KV workload, implementing GET/SET/DELETE operations on a persistent key-value store, was designed to stress memory allocation patterns through frequent object creation and map modifications. Contrary to expectations about garbage collection overhead under allocation pressure, all three languages demonstrated remarkably similar performance:
+The KV workload, implementing GET/SET/DELETE operations on a persistent key-value store, was designed to stress memory allocation patterns through frequent object creation and map modifications. To simulate realistic cache middleware scenarios, the benchmark employs varied data patterns including user session data (JSON objects with authentication tokens and preferences), API response caches (paginated lists with metadata), configuration data, document content, and base64-encoded binary-like data. This heterogeneous value distribution with sizes ranging from 200 bytes to 10KB creates realistic allocation pressure patterns found in production cache systems. Contrary to expectations about garbage collection overhead under allocation pressure, all three languages demonstrated remarkably similar performance:
 
 \begin{itemize}
     \item \textbf{Rust}: 23,200 req/s throughput, 1.3ms median latency, 920MB memory
