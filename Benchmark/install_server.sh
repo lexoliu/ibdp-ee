@@ -13,28 +13,34 @@ install_linux_dependencies() {
       python3 python3-venv python3-pip \
       openjdk-21-jdk \
       maven \
-      golang-go \
-      cargo
+      golang-go
   elif command -v dnf >/dev/null 2>&1; then
     sudo dnf install -y \
       curl \
       python3 python3-pip \
       java-21-openjdk java-21-openjdk-devel \
       maven \
-      golang \
-      rust cargo
+      golang
   elif command -v yum >/dev/null 2>&1; then
     sudo yum install -y \
       curl \
       python3 python3-pip \
       java-21-openjdk java-21-openjdk-devel \
       maven \
-      golang \
-      rust cargo
+      golang
   else
-    echo "Unsupported Linux distribution. Install curl, Python 3, OpenJDK 21, Maven, Go, and Rust manually." >&2
+    echo "Unsupported Linux distribution. Install curl, Python 3, OpenJDK 21, Maven, Go, Go toolchain, and Rust via rustup manually." >&2
     exit 1
   fi
+}
+
+install_rustup() {
+  if command -v rustup >/dev/null 2>&1; then
+    return
+  fi
+
+  echo "Installing Rust toolchain via rustup..."
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 }
 
 link_macos_jdk() {
@@ -47,8 +53,9 @@ link_macos_jdk() {
 }
 
 case "$(uname -s | tr '[:upper:]' '[:lower:]')" in
-  linux*)
+ linux*)
     install_linux_dependencies
+    install_rustup
     ;;
   darwin*)
     if ! which_cmd brew; then
@@ -68,6 +75,11 @@ case "$(uname -s | tr '[:upper:]' '[:lower:]')" in
     echo "Unsupported platform." >&2
     exit 1
     ;;
- esac
+esac
+
+if [ -f "$HOME/.cargo/env" ]; then
+  # shellcheck disable=SC1090
+  source "$HOME/.cargo/env"
+fi
 
 echo "Server dependencies installed."

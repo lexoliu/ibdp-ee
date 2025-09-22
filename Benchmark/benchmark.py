@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -21,6 +22,56 @@ from typing import Callable, Dict, List, Tuple
 ROOT = Path(__file__).resolve().parent
 K6_DIR = ROOT / "k6"
 RESULTS_ROOT = ROOT / "results"
+JSONL_SCRIPT_PATH = ROOT / "scripts" / "jsonl_timeseries.rs"
+_RUST_SCRIPT_CMD: list[str] | None = None
+
+
+def _locate_rust_script() -> list[str]:
+    global _RUST_SCRIPT_CMD
+    if _RUST_SCRIPT_CMD is not None:
+        return _RUST_SCRIPT_CMD
+
+    for binary in ("rust-script", "cargo-script"):
+        path = shutil.which(binary)
+        if path:
+            _RUST_SCRIPT_CMD = [path]
+            return _RUST_SCRIPT_CMD
+
+    cargo = shutil.which("cargo")
+    if cargo is None:
+        fallback = Path.home() / ".cargo" / "bin" / "cargo"
+        if fallback.exists():
+            cargo = str(fallback)
+    if cargo is not None:
+        probe = subprocess.run(
+            [cargo, "script", "-V"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if probe.returncode == 0:
+            _RUST_SCRIPT_CMD = [cargo, "script"]
+            return _RUST_SCRIPT_CMD
+
+    raise RuntimeError(
+        "cargo-script / rust-script not found. Install via `cargo install cargo-script` or `cargo install rust-script`."
+    )
+
+
+def convert_jsonl_to_csv(jsonl_path: Path, csv_path: Path) -> None:
+    if not JSONL_SCRIPT_PATH.exists():
+        raise RuntimeError(f"JSONL converter script missing: {JSONL_SCRIPT_PATH}")
+
+    base_cmd = _locate_rust_script()
+    if base_cmd[0].endswith("rust-script"):
+        cmd = base_cmd + ["-O", str(JSONL_SCRIPT_PATH), "--", str(jsonl_path), str(csv_path)]
+    else:
+        cmd = base_cmd + ["--release", str(JSONL_SCRIPT_PATH), "--", str(jsonl_path), str(csv_path)]
+
+    proc = subprocess.run(cmd, cwd=str(ROOT))
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"jsonl_timeseries script failed with exit code {proc.returncode}"
+        )
 
 TEST_SCRIPTS = {
     "prime": K6_DIR / "prime.js",
@@ -152,75 +203,6 @@ def parse_summary(summary_path: Path) -> Dict[str, float]:
         "latency_p95": metric_value("http_req_duration", "p(95)"),
         "latency_p99": metric_value("http_req_duration", "p(99)"),
     }
-
-
-def parse_timeseries(jsonl_path: Path) -> List[Tuple[int, int, float]]:
-    series: Dict[int, Dict[str, float]] = {}
-
-    with jsonl_path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                node = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if node.get("type") != "Point":
-                continue
-
-            metric = node.get("metric")
-            data = node.get("data", {})
-            sec = _parse_k6_time_to_sec(data.get("time"))
-            if sec < 0:
-                continue
-            bucket = series.setdefault(sec, {"count": 0, "lat_sum": 0.0, "lat_cnt": 0})
-            if metric == "http_reqs":
-                bucket["count"] += 1
-            elif metric == "http_req_duration":
-                try:
-                    value = float(data.get("value", 0.0))
-                except (TypeError, ValueError):
-                    continue
-                bucket["lat_sum"] += value
-                bucket["lat_cnt"] += 1
-
-    if not series:
-        return []
-
-    anchor = min(series.keys())
-    rows: List[Tuple[int, int, float]] = []
-    for sec in sorted(series.keys()):
-        bucket = series[sec]
-        latency = bucket["lat_sum"] / bucket["lat_cnt"] if bucket["lat_cnt"] else 0.0
-        rows.append((sec - anchor, int(bucket["count"]), latency))
-    return rows
-
-
-def _parse_k6_time_to_sec(raw_time) -> int:
-    if isinstance(raw_time, (int, float)):
-        value = float(raw_time)
-        if value > 1e12:
-            return int(value / 1_000_000_000)
-        if 1e6 < value < 1e9:
-            return int(value / 1_000)
-        return int(value)
-    if isinstance(raw_time, str):
-        text = raw_time.strip()
-        if text.endswith("Z"):
-            text = text[:-1] + "+00:00"
-        try:
-            return int(datetime.fromisoformat(text).timestamp())
-        except ValueError:
-            return -1
-    return -1
-
-
-def write_timeseries_csv(rows: List[Tuple[int, int, float]], csv_path: Path) -> None:
-    with csv_path.open("w", encoding="utf-8") as handle:
-        handle.write("second,throughput,latency_ms\n")
-        for second, count, latency in rows:
-            handle.write(f"{second},{count},{latency:.4f}\n")
 
 
 def write_memory_csv(samples: List[Tuple[float, float]], csv_path: Path) -> None:
@@ -366,8 +348,7 @@ def run_benchmark(
 
         summary[test] = parse_summary(final_summary_path)
 
-        rows = parse_timeseries(final_json_path)
-        write_timeseries_csv(rows, output_dir / f"{test}_timeseries.csv")
+        convert_jsonl_to_csv(final_json_path, output_dir / f"{test}_timeseries.csv")
 
         if memory_samples:
             write_memory_csv(memory_samples, output_dir / f"{test}_memory.csv")
@@ -470,4 +451,3 @@ def parse_duration_seconds(duration: str) -> float:
         elif unit == "h":
             total += value * 3600.0
     return total
-
