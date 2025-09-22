@@ -20,6 +20,7 @@ class EmailNotifier:
         
         if self.enabled and self.api_key:
             resend.api_key = self.api_key
+            print("Email notifications enabled, i will send emails to:", self.to_emails)
         elif self.enabled:
             print("Warning: Email notifications enabled but RESEND_API_KEY not set")
             self.enabled = False
