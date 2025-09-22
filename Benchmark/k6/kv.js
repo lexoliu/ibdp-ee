@@ -28,7 +28,9 @@ const base = __ENV.K6_BASE_URL || __ENV.BASE_URL || 'http://127.0.0.1:8080';
 const startTimestamp = Date.now();
 const MAX_RETRIES = parseInt(__ENV.K6_MAX_RETRIES || '5', 10);
 const RETRY_DELAY = parseFloat(__ENV.K6_RETRY_DELAY || '0.01');
-const KEY_SPACE = parseInt(__ENV.K6_KV_KEY_SPACE || '100000', 10);
+const mode = (__ENV.K6_MODE || __ENV.MODE || 'normal').toLowerCase();
+const defaultKeySpace = mode === 'debug' ? 1000 : 100000;
+const KEY_SPACE = parseInt(__ENV.K6_KV_KEY_SPACE || `${defaultKeySpace}`, 10);
 
 function requestWithRetry(fn, description) {
   let attempt = 0;

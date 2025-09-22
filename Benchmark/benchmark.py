@@ -28,7 +28,20 @@ TEST_SCRIPTS = {
     "kv": K6_DIR / "kv.js",
 }
 
-KV_KEY_SPACE = int(os.environ.get("K6_KV_KEY_SPACE", "100000"))
+
+
+def resolve_kv_key_space(mode: str) -> int:
+    override = os.environ.get("K6_KV_KEY_SPACE")
+    if override:
+        try:
+            value = int(override)
+            if value > 0:
+                return value
+            print(f"Warning: ignoring non-positive K6_KV_KEY_SPACE override: {override}")
+        except ValueError:
+            print(f"Warning: invalid K6_KV_KEY_SPACE override '{override}', using default")
+
+    return 1_000 if mode == "debug" else 100_000
 
 DEFAULT_TEST_ORDER = ["prime", "light", "kv"]
 
@@ -104,6 +117,9 @@ def run_k6(
     duration: str,
     attempt: int,
     total_attempts: int,
+    *,
+    kv_key_space: int | None = None,
+    mode: str | None = None,
 ) -> Tuple[Path, Path]:
     csv_path = output_dir / f"{test}_timeseries.csv"  # Will be created by k6 handleSummary
     summary_path = output_dir / f"{test}_summary.json"
@@ -124,8 +140,10 @@ def run_k6(
     env.setdefault("BASE_URL", base_url)
     env.setdefault("K6_BASE_URL", base_url)
     env.setdefault("K6_DURATION", duration)
-    if test == "kv":
-        env.setdefault("K6_KV_KEY_SPACE", str(KV_KEY_SPACE))
+    if mode is not None:
+        env.setdefault("K6_MODE", mode)
+    if test == "kv" and kv_key_space is not None:
+        env.setdefault("K6_KV_KEY_SPACE", str(kv_key_space))
 
     attempt_note = f" (attempt {attempt}/{total_attempts})" if total_attempts > 1 else ""
     print(f"Running {' '.join(cmd)}{attempt_note} [per-second aggregation via handleSummary]")
@@ -295,6 +313,12 @@ def run_benchmark(
     )
     print(f"Writing artifacts to {output_dir}")
 
+    kv_key_space = resolve_kv_key_space(mode)
+    print(
+        "Resolved KV key space:",
+        f"{kv_key_space} keys per VU (total target {kv_key_space * vus:,})",
+    )
+
     print(f"Waiting for service at {base_url} ...")
     if not wait_for_service(base_url, wait):
         raise RuntimeError("Service not reachable via /echo")
@@ -324,6 +348,8 @@ def run_benchmark(
                 duration,
                 attempt,
                 repeats,
+                kv_key_space=kv_key_space if test == "kv" else None,
+                mode=mode,
             )
             final_csv_path = csv_path
             final_summary_path = summary_path
@@ -349,7 +375,12 @@ def run_benchmark(
 
         if test == "kv":
             entries = fetch_kv_entries(base_url)
-            expected_entries = vus * KV_KEY_SPACE
+            expected_entries = vus * kv_key_space
+            print(
+                "KV occupancy check:",
+                f"expected {expected_entries:,} entries (VUs={vus} × key_space={kv_key_space})",
+                f"observed {entries if entries is not None else 'unknown'}",
+            )
             if entries is None:
                 raise RuntimeError("Unable to verify KV occupancy after benchmark run")
             if entries != expected_entries:
@@ -357,6 +388,7 @@ def run_benchmark(
                     "KV occupancy check failed: "
                     f"expected {expected_entries} entries but service reported {entries}"
                 )
+            print("KV occupancy verified.")
 
         if not keep_raw:
             # Only delete summary file - CSV is the main output now
