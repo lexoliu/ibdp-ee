@@ -188,11 +188,11 @@ Contemporary garbage collectors employ sophisticated techniques to minimize appl
 
 \subsection{Historical and Contemporary Studies on Garbage Collection}
 
-The evolution of garbage collection has progressed from early concepts \citep{mccarthy1960lisp} to sophisticated modern algorithms addressing real-time constraints \citep{baker1978real}. Contemporary research continues to advance the field with novel approaches such as request-private garbage collection \citep{iso2025gc} and optimizations for serialized heaps \citep{pldi2024serialized}, demonstrating that garbage collectors remain an active area of innovation.
+The evolution of garbage collection has progressed from early concepts \citep{mccarthy1960lisp} to sophisticated modern algorithms addressing real-time constraints \citep{baker1978real}. Wilson's comprehensive survey \citep{wilson1992garbage} established foundational understanding of different collection strategies, while modern systems implement concurrent approaches like the G1 collector \citep{detlefs2004concurrent} to minimize application disruption.
 
-Recent empirical studies have provided updated performance comparisons relevant to modern development practices. \citet{rise2025goworkloads} conducted real-world workload comparisons between Go and Rust, while \citet{bitfield2025rustvgo} and \citet{evrone2025rustvgo} provide comprehensive 2025 analyses of Rust versus Go trade-offs. These studies consistently show Rust delivering superior raw performance and predictability, while Go offers competitive throughput with better development ergonomics.
+Rigorous performance evaluation methodology has become increasingly important in garbage collection research. \citet{blackburn2006dacapo} established standard benchmarking practices for Java performance analysis, while \citet{georges2007statistically} demonstrated the necessity of statistical rigor in performance evaluation. \citet{kalibera2013rigorous} further refined benchmarking methodologies to ensure reproducible and meaningful results within reasonable time constraints.
 
-Java performance analysis has also evolved significantly. \citet{dacapo2025bench} presents a comprehensive rethinking of Java performance evaluation methodologies, while \citet{akamas2024javagc} provides guidance on modern JVM garbage collector selection. Recent research by \citet{blackburn2025gc} emphasizes the importance of proper benchmarking methodology when evaluating managed runtime performance, highlighting issues with traditional approaches that may skew results.
+Memory management approaches have diversified beyond traditional garbage collection. Conservative collection techniques \citep{boehm1988conservative} demonstrated the feasibility of automatic memory management in uncooperative environments, while ownership type systems \citep{clarke1998ownership} provided static guarantees about memory safety. Modern languages like Rust \citep{matsakis2014rust} leverage these concepts to achieve memory safety without runtime overhead, creating an interesting comparison point for garbage-collected languages.
 
 \subsection{Gap in Existing Research}
 
@@ -398,6 +398,24 @@ These findings suggest that the decision between garbage-collected and manually-
 Ensuring implementation consistency across languages presented the primary methodological challenge. Each language was implemented using its most popular web framework (Spring Boot for Java, standard library for Go, and standard library for Rust) with deliberately basic implementations to minimize framework-specific optimizations that could confound results.
 
 Interestingly, the Linux server environment showed much more stable behavior than initially expected. All three languages demonstrated remarkably low and stable memory consumption (under 1.1MB across all workloads), which contrasts with earlier local testing experiences where Java required significant heap tuning. This suggests that the server environment and workload characteristics were well within the memory management capabilities of all tested languages.
+
+\subsection{Critical Turning Points and Research Evolution}
+
+This research underwent several pivotal decisions that fundamentally shaped both methodology and interpretation:
+
+\textbf{Turning Point 1: Aliyun Cloud Deployment Decision}
+Initially, benchmarks were conducted locally on macOS. The decision to deploy on Aliyun Linux servers arose from concerns about local environment variability and the need for production-representative conditions. This shift proved transformative—the cloud environment revealed much more stable memory behavior than local testing, where Java had exhibited memory pressure requiring heap tuning. The cloud results showed remarkably low memory usage across all languages (under 1.1MB), fundamentally changing our interpretation from "Java requires significant memory overhead" to "all modern languages can be quite memory-efficient under typical workloads."
+
+\textbf{Turning Point 2: JVM Warm-up Strategy}
+Early Java results showed extremely poor performance until we implemented a two-phase testing approach with explicit warm-up runs. This methodological adjustment was crucial for fair comparison, as it separated JIT compilation effects from steady-state performance. However, it also revealed that the warm-up requirement itself represents a practical limitation of Java in scenarios requiring immediate performance (e.g., serverless computing, short-lived processes).
+
+\textbf{Turning Point 3: Go vs. Rust Performance Convergence}
+The most surprising finding was Go's near-parity with Rust across all workloads. Initial expectations, based on theoretical GC overhead concerns, predicted Rust would significantly outperform Go, especially under allocation pressure. The reality of negligible differences (<5\% variation) forced a fundamental reframing of the research question from "How much overhead does GC impose?" to "Why is modern GC overhead so minimal?"
+
+\textbf{Turning Point 4: Java's Workload-Dependent Performance}
+Java's dramatic performance variation—from 63\% slower in Prime to competitive in Light/KV workloads—revealed that runtime overhead, not GC overhead, was the dominant factor. This insight shifted focus from garbage collection mechanisms to broader runtime architecture considerations, fundamentally altering the conclusions about when and why to choose different languages.
+
+Each turning point required methodological adjustments and interpretive reframing, ultimately producing findings that challenge conventional wisdom about garbage collection performance in realistic application scenarios.
 
 \subsection{Unexpected Findings and Performance Insights}
 

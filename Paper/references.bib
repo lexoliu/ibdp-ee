@@ -1,48 +1,13 @@
-@inproceedings{blackburn2025gc,
-  title     = {Rethinking Java Performance Analysis},
-  author    = {Blackburn, Steve M. and others},
-  booktitle = {Proceedings of the 30th ACM International Conference on Architectural Support for Programming Languages and Operating Systems},
-  year      = {2025},
-  url       = {https://www.steveblackburn.org/pubs/papers/dacapo-asplos-2025-with-appendix.pdf},
-  note      = {Accessed: 2025-05-12}
-}
-
-@article{bitfield2025rustvgo,
-  title   = {Rust vs Go in 2025},
-  author  = {Cross, Chris},
-  journal = {Bitfield Consulting Blog},
-  year    = {2025},
-  url     = {https://bitfieldconsulting.com/posts/rust-vs-go},
-  note    = {Accessed: 2025-05-12}
-}
-
-@article{evrone2025rustvgo,
-  title   = {Rust vs. Go in 2025: An In-Depth Comparison},
-  author  = {Evrone},
-  journal = {Evrone Blog},
-  year    = {2025},
-  url     = {https://evrone.com/blog/rustvsgo},
-  note    = {Accessed: 2025-05-12}
-}
-
-@article{akamas2024javagc,
-  title   = {How to choose the best JVM Garbage Collector},
-  author  = {Akamas Engineering},
-  journal = {Akamas Blog},
-  year    = {2024},
-  url     = {https://www.akamas.io/resources/right-app-gc-maximum-performance/},
-  note    = {Accessed: 2025-05-12}
-}
-
+% Foundational Garbage Collection Papers
 @article{mccarthy1960lisp,
   author  = {McCarthy, John},
-  title   = {Recursive Functions of Symbolic Expressions and Their Computation by Machine},
+  title   = {Recursive Functions of Symbolic Expressions and Their Computation by Machine, Part I},
   journal = {Communications of the ACM},
   year    = {1960},
   volume  = {3},
   number  = {4},
   pages   = {184--195},
-  note    = {Original introduction of garbage collection concept}
+  doi     = {10.1145/367177.367199}
 }
 
 @article{baker1978real,
@@ -53,68 +18,140 @@
   volume  = {21},
   number  = {4},
   pages   = {280--294},
-  note    = {Early real-time garbage collection}
+  doi     = {10.1145/359460.359470}
 }
 
-@article{deutsch1975refcount,
-  author  = {Deutsch, Luís P. and Bobrow, Daniel G.},
-  title   = {Reference Counting and its Efficient Implementation in PL/I},
+@inproceedings{wilson1992garbage,
+  author    = {Wilson, Paul R.},
+  title     = {Uniprocessor Garbage Collection Techniques},
+  booktitle = {International Workshop on Memory Management},
+  year      = {1992},
+  pages     = {1--42},
+  publisher = {Springer},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {637}
+}
+
+% Modern Garbage Collection
+@inproceedings{detlefs2004concurrent,
+  author    = {Detlefs, David L. and Flood, Christine H. and Heller, Steve and Printezis, Tony},
+  title     = {Garbage-First Garbage Collection},
+  booktitle = {Proceedings of the 4th International Symposium on Memory Management},
+  year      = {2004},
+  pages     = {37--48},
+  publisher = {ACM},
+  doi       = {10.1145/1029873.1029879}
+}
+
+@article{boehm1988conservative,
+  author  = {Boehm, Hans-Juergen and Weiser, Mark},
+  title   = {Garbage Collection in an Uncooperative Environment},
+  journal = {Software: Practice and Experience},
+  year    = {1988},
+  volume  = {18},
+  number  = {9},
+  pages   = {807--820},
+  doi     = {10.1002/spe.4380180902}
+}
+
+% Performance Evaluation Methodology
+@inproceedings{blackburn2006dacapo,
+  author    = {Blackburn, Stephen M. and Garner, Robin and Hoffmann, Chris and Khang, Asjad M. and McKinley, Kathryn S. and Bentzur, Rotem and Diwan, Amer and Feinberg, Daniel and Frampton, Daniel and Guyer, Samuel Z. and Hirzel, Martin and Hosking, Antony and Jump, Maria and Lee, Han and Moss, J. Eliot B. and Phansalkar, Aashish and Stefanović, Darko and VanDrunen, Thomas and von Dincklage, Daniel and Wiedermann, Ben},
+  title     = {The DaCapo Benchmarks: Java Benchmarking Development and Analysis},
+  booktitle = {Proceedings of the 21st Annual ACM SIGPLAN Conference on Object-Oriented Programming Systems, Languages, and Applications},
+  year      = {2006},
+  pages     = {169--190},
+  publisher = {ACM},
+  doi       = {10.1145/1167473.1167488}
+}
+
+@article{georges2007statistically,
+  author  = {Georges, Andy and Buytaert, Dries and Eeckhout, Lieven},
+  title   = {Statistically Rigorous Java Performance Evaluation},
   journal = {ACM SIGPLAN Notices},
-  year    = {1975},
-  volume  = {10},
-  number  = {8},
-  pages   = {97--104},
-  note    = {Foundational paper on reference counting techniques}
+  year    = {2007},
+  volume  = {42},
+  number  = {10},
+  pages   = {57--76},
+  doi     = {10.1145/1297027.1297033}
 }
 
-@inproceedings{grossman2002cyclone,
-  author    = {Grossman, Dan and Hicks, Michael and Wang, Trevor and Jim, Jim},
-  title     = {Cyclone: A Safe Dialect of C},
-  booktitle = {USENIX Annual Technical Conference},
-  year      = {2002},
-  note      = {Demonstrates memory-safe extension to C}
+@inproceedings{kalibera2013rigorous,
+  author    = {Kalibera, Tomas and Jones, Richard},
+  title     = {Rigorous Benchmarking in Reasonable Time},
+  booktitle = {Proceedings of the 2013 International Symposium on Memory Management},
+  year      = {2013},
+  pages     = {63--74},
+  publisher = {ACM},
+  doi       = {10.1145/2464157.2464160}
 }
 
-@misc{hoare2015rust,
-  author       = {Hoare, Graydon},
-  title        = {{Rust}: Safe, Concurrent, Practical Language},
-  howpublished = {Rust Programming Language Blog},
-  year         = {2015},
-  url          = {https://www.rust-lang.org},
-  note         = {Introduces Rust's approach to memory safety}
+% Memory Management and Allocation
+@inproceedings{berger2000hoard,
+  author    = {Berger, Emery D. and McKinley, Kathryn S. and Blumofe, Robert D. and Wilson, Paul R.},
+  title     = {Hoard: A Scalable Memory Allocator for Multithreaded Applications},
+  booktitle = {Proceedings of the 9th International Conference on Architectural Support for Programming Languages and Operating Systems},
+  year      = {2000},
+  pages     = {117--128},
+  publisher = {ACM},
+  doi       = {10.1145/378993.379232}
 }
 
-@inproceedings{iso2025gc,
-  title     = {IsoGC: Request-Private Garbage Collection},
-  author    = {Qiu, Tianle and Blackburn, Stephen M.},
-  booktitle = {Proceedings of the ACM on Programming Languages, PLDI},
-  year      = {2025},
-  url       = {https://steveblackburn.org/pubs/papers/iso-pldi-2025.pdf},
-  note      = {Accessed: 2025-05-12}
+% Language Design
+@inproceedings{clarke1998ownership,
+  author    = {Clarke, David G. and Potter, John M. and Noble, James},
+  title     = {Ownership Types for Flexible Alias Protection},
+  booktitle = {Proceedings of the 13th ACM SIGPLAN Conference on Object-Oriented Programming, Systems, Languages, and Applications},
+  year      = {1998},
+  pages     = {48--64},
+  publisher = {ACM},
+  doi       = {10.1145/286936.286947}
 }
 
-@inproceedings{pldi2024serialized,
-  title     = {Garbage Collection for Mostly Serialized Heaps},
-  author    = {Koparkar, Chaitanya S. and others},
-  booktitle = {Proceedings of PLDI 2024},
-  year      = {2024},
-  note      = {Accessed: 2025-05-12}
+@article{matsakis2014rust,
+  author  = {Matsakis, Nicholas D. and Klock II, Felix S.},
+  title   = {The Rust Language},
+  journal = {ACM SIGAda Ada Letters},
+  year    = {2014},
+  volume  = {34},
+  number  = {3},
+  pages   = {103--104},
+  doi     = {10.1145/2692956.2663188}
 }
 
-@article{dacapo2025bench,
-  title   = {Rethinking Java Performance Analysis},
-  author  = {Blackburn, Steve M. and others},
-  journal = {Proc. of ASPLOS 2025},
-  year    = {2025},
-  url     = {https://www.dacapobench.org/assets/pdf/dacapo-asplos-2025.pdf},
-  note    = {Accessed: 2025-05-12}
+% Systems Performance
+@article{dean2013tail,
+  author  = {Dean, Jeffrey and Barroso, Luiz André},
+  title   = {The Tail at Scale},
+  journal = {Communications of the ACM},
+  year    = {2013},
+  volume  = {56},
+  number  = {2},
+  pages   = {74--80},
+  doi     = {10.1145/2408776.2408794}
 }
 
-@article{rise2025goworkloads,
-  title   = {Go vs Rust Performance Showdown in Real-World Workloads},
-  author  = {Chen, Rui},
-  journal = {Medium},
-  year    = {2025},
-  url     = {https://risewithpurpose.medium.com/go-vs-rust-performance-showdown-in-real-world-workloads-d5d4c4f3e804},
-  note    = {Accessed: 2025-05-12}
+% Official Documentation (These are real and citable)
+@manual{oracle2023java,
+  title        = {Java Platform, Standard Edition HotSpot Virtual Machine Garbage Collection Tuning Guide},
+  author       = {{Oracle Corporation}},
+  organization = {Oracle Corporation},
+  year         = {2023},
+  note         = {Release 21, available at docs.oracle.com}
+}
+
+@manual{golang2023spec,
+  title        = {The Go Programming Language Specification},
+  author       = {{The Go Team}},
+  organization = {Google Inc.},
+  year         = {2023},
+  note         = {Version 1.21, available at golang.org/ref/spec}
+}
+
+@manual{rust2023reference,
+  title        = {The Rust Reference},
+  author       = {{The Rust Team}},
+  organization = {Rust Foundation},
+  year         = {2023},
+  note         = {Available at doc.rust-lang.org/reference/}
 }
