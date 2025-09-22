@@ -2,14 +2,12 @@
 //! ```cargo
 //! [dependencies]
 //! rayon = "1.10"
-//! serde = { version = "1.0", features = ["derive"] }
 //! simd-json = "0.13"
 //! time = { version = "0.3.37", features = ["parsing"] }
 //! ```
 
 use rayon::prelude::*;
-use serde::Deserialize;
-use simd_json::BorrowedValue;
+use simd_json::{prelude::*, BorrowedValue}; // <-- bring get(), as_str(), as_f64() into scope
 use std::collections::HashMap;
 use std::env;
 use std::fs::File;
@@ -18,24 +16,6 @@ use std::path::Path;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-/// A single data point in the JSONL file.
-#[derive(Deserialize)]
-struct Point<'a> {
-    #[serde(rename = "type")]
-    typ: &'a str,
-    metric: &'a str,
-    data: Data<'a>,
-}
-
-/// `data` object inside the point
-#[derive(Deserialize)]
-struct Data<'a> {
-    time: BorrowedValue<'a>, // may be number or string
-    #[serde(default)]
-    value: Option<f64>,
-}
-
-/// Aggregation bucket
 #[derive(Default, Clone)]
 struct Bucket {
     count: u64,
@@ -78,23 +58,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let reader = BufReader::new(input_file);
     let lines: Vec<String> = reader.lines().filter_map(Result::ok).collect();
 
-    // Parallel parse + local aggregation per thread
     let buckets: HashMap<i64, Bucket> = lines
         .par_iter()
         .filter_map(|line| parse_line(line))
-        .fold(HashMap::new, |mut acc, (sec, metric, latency)| {
-            let bucket = acc.entry(sec).or_default();
-            match metric {
-                Metric::HttpReq => bucket.count += 1,
-                Metric::HttpReqDuration => {
-                    if let Some(lat) = latency {
-                        bucket.latency_sum += lat;
-                        bucket.latency_count += 1;
+        .fold(
+            HashMap::new,
+            |mut acc: HashMap<i64, Bucket>, (sec, metric, latency)| {
+                let bucket: &mut Bucket = acc.entry(sec).or_default();
+                match metric {
+                    Metric::HttpReq => bucket.count += 1,
+                    Metric::HttpReqDuration => {
+                        if let Some(lat) = latency {
+                            bucket.latency_sum += lat;
+                            bucket.latency_count += 1;
+                        }
                     }
                 }
-            }
-            acc
-        })
+                acc
+            },
+        )
         .reduce(HashMap::new, |mut acc, m| {
             for (k, v) in m {
                 let b = acc.entry(k).or_default();
@@ -114,7 +96,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let anchor = *buckets.keys().min().unwrap();
-
     let mut seconds: Vec<i64> = buckets.keys().copied().collect();
     seconds.sort_unstable();
 
@@ -134,34 +115,39 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Parse one JSONL line into (second, metric, latency)
 fn parse_line(line: &str) -> Option<(i64, Metric, Option<f64>)> {
-    // simd-json requires &mut str
-    let mut line_mut = line.to_owned();
-    let point: Point = simd_json::from_str(&mut line_mut).ok()?;
-    if point.typ != "Point" {
+    // Convert to Vec<u8> so simd-json can parse it
+    let mut bytes = line.as_bytes().to_vec();
+    let value: BorrowedValue = simd_json::to_borrowed_value(&mut bytes).ok()?;
+
+    let typ = value.get("type")?.as_str()?;
+    if typ != "Point" {
         return None;
     }
 
-    let sec = parse_k6_time_to_sec(&point.data.time)?;
-    let metric = match point.metric {
+    let metric_str = value.get("metric")?.as_str()?;
+    let metric = match metric_str {
         "http_reqs" => Metric::HttpReq,
         "http_req_duration" => Metric::HttpReqDuration,
         _ => return None,
     };
 
-    Some((sec, metric, point.data.value))
+    let data = value.get("data")?;
+    let sec = parse_k6_time_to_sec(data.get("time")?)?;
+    let latency = data.get("value").and_then(|v| v.as_f64());
+
+    Some((sec, metric, latency))
 }
 
-/// Convert k6 time field to seconds
-fn parse_k6_time_to_sec(value: &BorrowedValue<'_>) -> Option<i64> {
-    match value {
-        BorrowedValue::F64(v) => parse_numeric_time(*v),
-        BorrowedValue::U64(v) => Some(*v as i64),
-        BorrowedValue::I64(v) => Some(*v),
-        BorrowedValue::String(s) => parse_iso_time(s.as_str()),
-        _ => None,
+/// Convert time field to seconds
+fn parse_k6_time_to_sec(value: &BorrowedValue) -> Option<i64> {
+    if let Some(f) = value.as_f64() {
+        return parse_numeric_time(f);
     }
+    if let Some(s) = value.as_str() {
+        return parse_iso_time(s);
+    }
+    None
 }
 
 fn parse_numeric_time(v: f64) -> Option<i64> {
