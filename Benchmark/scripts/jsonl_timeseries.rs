@@ -6,8 +6,9 @@
 //! time = { version = "0.3.37", features = ["parsing"] }
 //! ```
 
+use rayon::iter::ParallelBridge;
 use rayon::prelude::*;
-use simd_json::{prelude::*, BorrowedValue}; // <-- bring get(), as_str(), as_f64() into scope
+use simd_json::{prelude::*, BorrowedValue}; // get(), as_str(), as_f64()
 use std::collections::HashMap;
 use std::env;
 use std::fs::File;
@@ -23,6 +24,7 @@ struct Bucket {
     latency_count: u64,
 }
 
+#[derive(Copy, Clone)]
 enum Metric {
     HttpReq,
     HttpReqDuration,
@@ -56,11 +58,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let output_file = File::create(&output_path)?;
 
     let reader = BufReader::new(input_file);
-    let lines: Vec<String> = reader.lines().filter_map(Result::ok).collect();
 
-    let buckets: HashMap<i64, Bucket> = lines
-        .par_iter()
-        .filter_map(|line| parse_line(line))
+    // Stream lines -> parallel processing (no big Vec<String> in memory)
+    let buckets: HashMap<i64, Bucket> = reader
+        .split(b'\n')
+        .par_bridge()
+        .filter_map(Result::ok)
+        .filter(|b| !b.is_empty()) // fast skip
+        .filter_map(parse_line_bytes) // returns (sec, metric, latency)
         .fold(
             HashMap::new,
             |mut acc: HashMap<i64, Bucket>, (sec, metric, latency)| {
@@ -95,7 +100,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // Use the smallest observed second as anchor (relative time = second - anchor)
     let anchor = *buckets.keys().min().unwrap();
+
     let mut seconds: Vec<i64> = buckets.keys().copied().collect();
     seconds.sort_unstable();
 
@@ -115,31 +122,51 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn parse_line(line: &str) -> Option<(i64, Metric, Option<f64>)> {
-    // Convert to Vec<u8> so simd-json can parse it
-    let mut bytes = line.as_bytes().to_vec();
-    let value: BorrowedValue = simd_json::to_borrowed_value(&mut bytes).ok()?;
+/// Parse one JSONL line from raw bytes (mutated in-place by simd-json)
+fn parse_line_bytes(mut bytes: Vec<u8>) -> Option<(i64, Metric, Option<f64>)> {
+    // Trim leading/trailing ASCII whitespace (incl. potential '\r')
+    let mut start = 0usize;
+    let mut end = bytes.len();
+    while start < end && bytes[start].is_ascii_whitespace() {
+        start += 1;
+    }
+    while end > start && bytes[end - 1].is_ascii_whitespace() {
+        end -= 1;
+    }
+    if start >= end {
+        return None;
+    }
+    let slice = &mut bytes[start..end];
 
+    // Parse to BorrowedValue (zero-copy)
+    let value: BorrowedValue = simd_json::to_borrowed_value(slice).ok()?;
+
+    // type == "Point"
     let typ = value.get("type")?.as_str()?;
     if typ != "Point" {
         return None;
     }
 
-    let metric_str = value.get("metric")?.as_str()?;
-    let metric = match metric_str {
+    // metric
+    let metric = match value.get("metric")?.as_str()? {
         "http_reqs" => Metric::HttpReq,
         "http_req_duration" => Metric::HttpReqDuration,
         _ => return None,
     };
 
+    // data.time -> sec, data.value -> latency (ms)
     let data = value.get("data")?;
     let sec = parse_k6_time_to_sec(data.get("time")?)?;
+    if sec < 0 {
+        return None; // keep original behavior: ignore negative timestamps
+    }
     let latency = data.get("value").and_then(|v| v.as_f64());
 
     Some((sec, metric, latency))
 }
 
-/// Convert time field to seconds
+/// Convert time field to epoch seconds.
+/// Accepts numeric values (ns/ms/s heuristics) or RFC3339 strings.
 fn parse_k6_time_to_sec(value: &BorrowedValue) -> Option<i64> {
     if let Some(f) = value.as_f64() {
         return parse_numeric_time(f);
@@ -154,6 +181,10 @@ fn parse_numeric_time(v: f64) -> Option<i64> {
     if !v.is_finite() {
         return None;
     }
+    // Heuristic:
+    // - >1e12 => ns
+    // - 1e6..1e9 => ms
+    // - else => seconds
     if v > 1_000_000_000_000.0 {
         Some((v / 1_000_000_000.0) as i64)
     } else if v > 1_000_000.0 && v < 1_000_000_000.0 {
@@ -165,6 +196,6 @@ fn parse_numeric_time(v: f64) -> Option<i64> {
 
 fn parse_iso_time(text: &str) -> Option<i64> {
     OffsetDateTime::parse(text, &Rfc3339)
-        .map(|dt| dt.unix_timestamp())
         .ok()
+        .map(|dt| dt.unix_timestamp())
 }
