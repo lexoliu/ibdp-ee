@@ -131,7 +131,7 @@ python plot_comparison.py \
 ## Health Checks and Modes
 
 The harness checks the `/echo` endpoint for readiness, matching the k6 scripts.
-During `normal` mode the suite repeats each test three times and uses the last
+During `normal` mode the suite repeats each test twice and uses the last
 attempt's artifacts. In `debug` mode only a single short run is executed.
 
 ## Logs

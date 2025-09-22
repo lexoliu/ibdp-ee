@@ -81,7 +81,7 @@ DEFAULT_TEST_ORDER = ["prime", "light", "kv"]
 
 MODE_DEFAULTS = {
     "debug": {"duration": "2s", "repeats": 1},
-    "normal": {"duration": "10m", "repeats": 3},
+    "normal": {"duration": "10m", "repeats": 2},
 }
 
 
