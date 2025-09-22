@@ -44,7 +44,8 @@ def resolve_kv_key_space(mode: str) -> int:
     # Reduced key space for debug mode to accommodate realistic cache data complexity
     return 250 if mode == "debug" else 100_000
 
-DEFAULT_TEST_ORDER = ["prime", "light", "kv"]
+# Prioritize `kv` because it tends to surface stability problems fastest.
+DEFAULT_TEST_ORDER = ["kv", "prime", "light"]
 
 MODE_DEFAULTS = {
     "debug": {"duration": "2s", "repeats": 1},
