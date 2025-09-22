@@ -1,4 +1,4 @@
 matplotlib==3.7.1
 numpy==1.24.3
 pandas==2.0.3
-resend==2.5.0
+resend==2.14.0
