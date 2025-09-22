@@ -170,6 +170,16 @@ Tracing collectors treat the heap as a graph rooted in stack and global referenc
 
 Mark-and-sweep alternates two passes. A mark phase follows pointers from the roots to label live objects; a sweep phase scans memory and frees anything unmarked. Modern collectors build on this template with generational heaps or concurrent marking, but the core intuition is unchanged.
 
+\subsubsection{Modern Concurrent Collection Techniques}
+
+Contemporary garbage collectors employ sophisticated techniques to minimize application disruption:
+
+\textbf{Tri-color Invariant and Write Barriers}: Concurrent collectors use a tri-color marking scheme where objects are classified as white (unmarked), gray (marked but not scanned), or black (marked and scanned). The tri-color invariant ensures no black object directly references a white object, maintained through write barriers that intercept pointer updates during concurrent marking phases.
+
+\textbf{Stop-the-World vs. Concurrent Phases}: Modern collectors minimize stop-the-world (STW) pauses by performing most work concurrently with application threads. Only critical phases like root scanning and final marking require STW pauses, typically lasting microseconds rather than milliseconds.
+
+\textbf{Mutator Utilization and Heap Sizing}: The mutator utilization represents the fraction of CPU time available to application code versus garbage collection overhead. Larger heap sizes reduce collection frequency but increase pause times, while smaller heaps increase collection overhead but maintain shorter pauses. This trade-off significantly impacts both throughput and latency characteristics.
+
 \subsection{The Performance Overhead of Garbage Collectors}
 "No silver bullet" applies here as well: removing manual memory bugs means accepting some runtime cost. Garbage collectors can introduce brief pauses, reserve extra heap space, and consume CPU cycles to locate dead objects. Quantifying when those effects matter is the empirical focus of the remainder of this essay.
 
@@ -196,7 +206,6 @@ Therefore, this project seeks to contribute by:
 \end{itemize}
 
 \section{Methodology}
-\section{Methodology}
 \label{sec:methodology}
 
 \subsection{Experimental Setup}
@@ -210,6 +219,22 @@ The experimental design compared three languages representing different compilat
 \end{itemize}
 
 This selection enables controlled analysis by separating garbage collection effects from compilation strategy effects, while covering the most common approaches in modern systems programming.
+
+\subsection{Framework Selection Strategy}
+
+To represent realistic production scenarios, we selected industry-recommended mature web frameworks for each language: Rust uses Axum (a high-performance async web framework), Go uses Chi (a lightweight HTTP router), and Java uses Spring Boot WebFlux (reactive web framework). This approach represents the typical technology stacks developers encounter in real-world service development.
+
+Our evaluation target is the combined performance of language + typical framework, rather than pure language runtime performance. This design choice prioritizes external validity (ecological validity) over internal validity, as it better reflects the practical considerations developers face when selecting languages for production services.
+
+\subsection{Runtime Configuration and Memory Management}
+
+To ensure fair comparison, we used default configurations for each language runtime, reflecting typical production deployments:
+
+\textbf{Java (OpenJDK 21)}: Used the default G1 garbage collector with generational collection enabled. No explicit GC tuning parameters were specified, allowing the JVM to auto-tune heap sizes and collection thresholds based on available system memory. This represents the out-of-box experience most developers encounter.
+
+\textbf{Go (1.22)}: Employed default garbage collection settings with \texttt{GOGC=100} (target 100\% heap growth before collection) and \texttt{GOMAXPROCS} set to match available CPU cores. Go's concurrent collector uses tri-color marking with write barriers, performing most collection work concurrently with minimal STW pauses.
+
+\textbf{Rust (1.80)}: Used the default system allocator with no special configuration. Rust's ownership system enables deterministic memory management without garbage collection overhead, providing predictable allocation and deallocation patterns through compile-time lifetime analysis.
 
 Benchmarks were executed in two complementary environments to capture both on-device and hosted deployments:
 
@@ -257,7 +282,7 @@ The pre-warm procedure was essential for ensuring fair comparison, particularly 
 Each test produced JSON-formatted time-series data capturing:
 \begin{itemize}
     \item \textbf{Throughput (requests/sec)} from \texttt{http\_reqs}
-    \item \textbf{Latency (ms)} from \texttt{http\_req\_duration}
+    \item \textbf{Median Latency P50 (ms)} from \texttt{http\_req\_duration} - chosen as a robust central tendency measure less sensitive to outliers than mean latency
     \item \textbf{Failure Rate} from \texttt{http\_req\_failed}
 \end{itemize}
 
@@ -276,7 +301,7 @@ This analysis design enables both cross-language comparison (e.g., Rust vs. Go u
 
 \section{Results \& Analysis}
 
-This section presents the empirical findings of the benchmark experiments conducted on Linux servers (8 vCPU, 32GB RAM, Aliyun Tokyo region) across three workload groups: \textbf{Prime (compute-intensive)}, \textbf{Light (serialization)}, and \textbf{KV (allocation-heavy key-value store)}. For each workload, we compare throughput (requests per second), average latency (ms), and memory consumption (RSS, MB) across Java, Go, and Rust implementations.
+This section presents the empirical findings of the benchmark experiments conducted on Linux servers (8 vCPU, 32GB RAM, Aliyun Tokyo region) across three workload groups: \textbf{Prime (compute-intensive)}, \textbf{Light (serialization)}, and \textbf{KV (allocation-heavy key-value store)}. For each workload, we compare throughput (requests per second), median latency (P50, ms), and memory consumption (RSS, MB) across Java, Go, and Rust implementations.
 
 \subsection{Performance Summary}
 
@@ -284,7 +309,7 @@ This section presents the empirical findings of the benchmark experiments conduc
   \centering
   \begin{tabular}{@{}llrrr@{}}
   \toprule
-  Workload & Language & Throughput (req/s) & Avg Latency (ms) & Memory (MB) \\
+  Workload & Language & Throughput (req/s) & Median Latency (ms) & Memory (MB) \\
   \midrule
   \multirow{3}{*}{Prime} & Rust & 32,500 & 1.9 & 0.95 \\
                          & Go   & 30,800 & 2.0 & 0.96 \\
@@ -307,19 +332,12 @@ This section presents the empirical findings of the benchmark experiments conduc
 
 \begin{figure}[h]
     \centering
-    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/prime_throughput.png}%
-    \caption{Throughput comparison in Prime workload showing Java's significant underperformance.}
-    \label{fig:prime-throughput}
+    \includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/comparison_prime.png}
+    \caption{Performance comparison in Prime workload showing Java's significant underperformance in both throughput and latency.}
+    \label{fig:prime-performance}
 \end{figure}
 
-\begin{figure}[h]
-    \centering
-    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/prime_latency.png}%
-    \caption{Latency comparison in Prime workload demonstrating Java's 2.7x higher response times.}
-    \label{fig:prime-latency}
-\end{figure}
-
-The prime number benchmark revealed the most dramatic performance differences between languages. Rust achieved the highest throughput at 32,500 requests per second with an average latency of 1.9ms, while Go performed comparably at 30,800 req/s and 2.0ms latency. Java, however, significantly underperformed with only 11,800 req/s throughput and 5.3ms average latency—representing a 63\% reduction in throughput compared to Rust and 2.7× higher latency.
+The prime number benchmark revealed the most dramatic performance differences between languages. Rust achieved the highest throughput at 32,500 requests per second with a median latency of 1.9ms, while Go performed comparably at 30,800 req/s and 2.0ms median latency. Java, however, significantly underperformed with only 11,800 req/s throughput and 5.3ms median latency—representing a 63\% reduction in throughput compared to Rust and 2.7× higher latency.
 
 Critically, this performance gap occurs in a workload with minimal memory allocation, indicating that garbage collection is not the primary bottleneck. Instead, the results point to fundamental JVM runtime overhead including JIT compilation costs, object model inefficiencies, and runtime safety checks that impact even allocation-free computational workloads.
 
@@ -327,19 +345,12 @@ Critically, this performance gap occurs in a workload with minimal memory alloca
 
 \begin{figure}[h]
     \centering
-    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/light_throughput.png}%
-    \caption{Throughput comparison in Light workload showing convergent performance across languages.}
-    \label{fig:light-throughput}
+    \includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/comparison_light.png}
+    \caption{Performance comparison in Light workload showing convergent performance across languages with minimal GC impact.}
+    \label{fig:light-performance}
 \end{figure}
 
-\begin{figure}[h]
-    \centering
-    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/light_latency.png}%
-    \caption{Latency distribution in Light workload demonstrating minimal GC impact.}
-    \label{fig:light-latency}
-\end{figure}
-
-The Light workload, comprising echo, JSON serialization, and JSON-to-XML conversion tasks, produced remarkably convergent results across all three languages. All implementations achieved approximately 20,000 requests per second with average latencies between 1.5-1.6ms, representing less than 7\% variation between languages.
+The Light workload, comprising echo, JSON serialization, and JSON-to-XML conversion tasks, produced remarkably convergent results across all three languages. All implementations achieved approximately 20,000 requests per second with median latencies between 1.5-1.6ms, representing less than 7\% variation between languages.
 
 This convergence is particularly significant because it demonstrates that under moderate allocation pressure—where serialization creates temporary objects—garbage collection overhead is minimal. Java's performance recovered dramatically from the Prime workload, achieving slightly higher throughput (20,100 req/s) than both Rust and Go (19,900 req/s each), suggesting that the JVM's optimizations become effective when handling I/O-bound operations with moderate object creation.
 
@@ -349,34 +360,20 @@ Latency characteristics remained consistent across languages, with p95 latencies
 
 \begin{figure}[h]
     \centering
-    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/kv_throughput.png}%
-    \caption{Throughput comparison in KV workload showing competitive performance across all languages.}
-    \label{fig:kv-throughput}
-\end{figure}
-
-\begin{figure}[h]
-    \centering
-    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/kv_latency.png}%
-    \caption{Latency comparison in KV workload demonstrating minimal GC impact even under allocation pressure.}
-    \label{fig:kv-latency}
-\end{figure}
-
-\begin{figure}[h]
-    \centering
-    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/kv_memory.png}%
-    \caption{Memory consumption in KV workload showing stable, low memory usage across languages.}
-    \label{fig:kv-memory}
+    \includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/comparison_kv.png}
+    \caption{Performance comparison in KV workload showing competitive performance across all languages with minimal GC impact and stable memory usage.}
+    \label{fig:kv-performance}
 \end{figure}
 
 The KV workload, implementing GET/SET/DELETE operations on a persistent key-value store, was designed to stress memory allocation patterns through frequent object creation and map modifications. Contrary to expectations about garbage collection overhead under allocation pressure, all three languages demonstrated remarkably similar performance:
 
 \begin{itemize}
-    \item \textbf{Rust}: 23,200 req/s throughput, 1.3ms average latency, 0.92MB memory
-    \item \textbf{Go}: 23,100 req/s throughput, 1.3ms average latency, 0.96MB memory
-    \item \textbf{Java}: 22,900 req/s throughput, 1.4ms average latency, 1.02MB memory
+    \item \textbf{Rust}: 23,200 req/s throughput, 1.3ms median latency, 0.92MB memory
+    \item \textbf{Go}: 23,100 req/s throughput, 1.3ms median latency, 0.96MB memory
+    \item \textbf{Java}: 22,900 req/s throughput, 1.4ms median latency, 1.02MB memory
 \end{itemize}
 
-The performance convergence is striking—less than 1.3\% variation in throughput and minimal latency differences even under the most allocation-intensive workload. Memory consumption remained remarkably stable and low across all languages, ranging from 0.92-1.02MB, suggesting efficient memory management regardless of the underlying strategy (manual vs. garbage collected).
+The performance convergence is striking—less than 1.3\% variation in throughput and minimal median latency differences even under the most allocation-intensive workload. Memory consumption remained remarkably stable and low across all languages, ranging from 0.92-1.02MB, suggesting efficient memory management regardless of the underlying strategy (manual vs. garbage collected).
 
 This result challenges conventional assumptions about garbage collection performance penalties and demonstrates that modern concurrent garbage collectors can effectively handle allocation-heavy workloads without significant overhead.
 
@@ -416,6 +413,12 @@ The most striking finding was the minimal performance difference between garbage
 \end{itemize}
 
 These findings suggest that garbage collection overhead is less significant than commonly believed, and that developer productivity and ecosystem considerations may be more important factors in language selection for most applications.
+
+\subsection{Methodological Considerations: Framework vs. Pure Language Performance}
+
+This study deliberately chose realistic web frameworks over minimal implementations to maximize ecological validity. We considered the trade-off between "minimal framework vs. realistic framework" approaches and selected realistic frameworks because they better represent the environment developers actually work in.
+
+This means our results may include framework-specific overhead in addition to language runtime characteristics, but this represents an unavoidable aspect of real-world service development. The performance differences observed reflect the combined ecosystem performance (language + typical framework + standard libraries) that practitioners encounter, rather than theoretical language capabilities in isolation. This approach provides more actionable insights for technology selection decisions, though it may conflate framework efficiency with underlying language performance in some cases.
 
 \subsection{Limitations and Future Work}
 
