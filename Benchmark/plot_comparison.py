@@ -71,22 +71,25 @@ def resolve_run_directories(args: argparse.Namespace) -> List[Tuple[str, Path]]:
 
     for language in args.languages:
         language_root = args.results_dir / language
-        candidates: List[Path] = []
         if language_root.is_dir():
-            candidates.extend(p for p in language_root.iterdir() if p.is_dir())
-        candidates.extend(p for p in args.results_dir.glob(f"{language}_*") if p.is_dir())
-        candidates = sorted(candidates, key=lambda path: path.name, reverse=True)
-
-        selected: Path | None = None
-        for candidate in candidates:
-            payload = load_results_payload(candidate)
-            if payload.get("language") == language:
-                selected = candidate
-                break
-        if selected is None:
-            print(f"Warning: no completed run found for {language}")
-            continue
-        runs.append((language, selected))
+            # Check if this is the new simplified structure (results.json directly in language dir)
+            if (language_root / "results.json").exists():
+                runs.append((language, language_root))
+                continue
+            
+            # Fall back to old structure (subdirectories with timestamps)
+            candidates = [p for p in language_root.iterdir() if p.is_dir()]
+            candidates = sorted(candidates, key=lambda path: path.name, reverse=True)
+            
+            for candidate in candidates:
+                payload = load_results_payload(candidate)
+                if payload.get("language") == language:
+                    runs.append((language, candidate))
+                    break
+            else:
+                print(f"Warning: no completed run found for {language}")
+        else:
+            print(f"Warning: no results directory found for {language}")
 
     return runs
 
@@ -131,8 +134,10 @@ def load_timeseries(run_dir: Path, test: str) -> List[Tuple[int, float, float]]:
             reader = csv.DictReader(handle)
             for row in reader:
                 second = int(row["second"])
-                throughput = float(row["throughput"])
-                latency = float(row["latency_ms"])
+                # K6 outputs requests per second, our old format was "throughput"
+                throughput = float(row.get("requests", row.get("throughput", "0")))
+                # K6 outputs avg_ms, our old format was "latency_ms"
+                latency = float(row.get("avg_ms", row.get("latency_ms", "0")))
                 data.append((second, throughput, latency))
     except Exception as exc:
         print(f"Error reading timeseries from {timeseries_file}: {exc}")

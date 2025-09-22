@@ -72,6 +72,7 @@ def parse_args() -> argparse.Namespace:
         help="Optional repeat override passed to benchmark.py",
     )
     parser.add_argument("--keep-raw", action="store_true", help="Keep raw k6 json outputs")
+    parser.add_argument("--force", action="store_true", help="Force re-run even if results exist")
     parser.add_argument(
         "--label-prefix",
         default=None,
@@ -299,9 +300,7 @@ def main() -> int:
     if args.debug and args.mode != "debug":
         print("Debug flag provided; forcing mode=debug")
         args.mode = "debug"
-    pipeline_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-
-    plots_dir = args.plots_dir or (RESULTS_ROOT / "plots" / pipeline_id)
+    plots_dir = args.plots_dir or (RESULTS_ROOT / "plots")
     memory_probe = make_memory_probe(args)
     run_entries: List[Tuple[str, Path]] = []
 
@@ -325,6 +324,7 @@ def main() -> int:
                 label=label,
                 memory_probe=memory_probe,
                 memory_interval=args.memory_interval,
+                skip_completed=not args.force,
             )
             run_entries.append((language, output_dir))
         except Exception as exc:

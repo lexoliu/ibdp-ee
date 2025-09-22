@@ -1,14 +1,31 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
+// Parse duration to get total seconds for threshold generation
+const duration = __ENV.K6_DURATION || "30s";
+const DURATION_SEC = parseDuration(duration);
+
+// Generate thresholds for each second to force k6 to aggregate per-second
+function generateThresholds() {
+  const thresholds = {
+    http_req_failed: ['rate<0.01'],
+  };
+  for (let s = 0; s <= DURATION_SEC; s++) {
+    const sec = s.toString().padStart(6, '0');
+    thresholds[`http_reqs{sec:${sec}}`] = ['count>=0'];
+    thresholds[`http_req_duration{sec:${sec}}`] = ['p(95)>=0'];
+  }
+  return thresholds;
+}
+
 // 从环境读取并发/时长（也支持 CLI --vus/--duration）
 export const options = {
-  thresholds: {
-    http_req_failed: ['rate<0.01'],
-  },
+  duration: duration,
+  thresholds: generateThresholds(),
 };
 
 const base = __ENV.K6_BASE_URL || __ENV.BASE_URL || 'http://127.0.0.1:8080';
+const startTimestamp = Date.now();
 
 // 负载配比（总和为1）：你可以随时调整
 const MIX = [
@@ -28,12 +45,18 @@ function pick() {
 }
 
 export default function () {
+  // Add per-second tag
+  const secIndex = Math.floor((Date.now() - startTimestamp) / 1000);
+  const secTag = secIndex.toString().padStart(6, '0');
+  
   const which = pick();
   let res;
 
   if (which === 'echo') {
     const body = 'hello ' + Math.random();
-    res = http.post(`${base}/echo`, body);
+    res = http.post(`${base}/echo`, body, {
+      tags: { sec: secTag, name: 'echo' }
+    });
   } else if (which === 'json') {
     const payload = JSON.stringify({
       gender: 'M',
@@ -46,6 +69,7 @@ export default function () {
     });
     res = http.post(`${base}/json`, payload, {
       headers: { 'Content-Type': 'application/json' },
+      tags: { sec: secTag, name: 'json' }
     });
   } else { // json2xml
     const payload = JSON.stringify({
@@ -56,10 +80,39 @@ export default function () {
     res = http.post(`${base}/json2xml`, payload, {
       headers: { 'Content-Type': 'application/json' },
       timeout: '60s',
+      tags: { sec: secTag, name: 'json2xml' }
     });
   }
 
   check(res, { 'status 200': (r) => r.status === 200 });
   // 轻微节流，避免把事件循环压满
   sleep(0.001);
+}
+
+export function handleSummary(data) {
+  const metrics = data.metrics;
+  let csv = 'second,requests,avg_ms,p95_ms\n';
+  
+  for (let s = 0; s <= DURATION_SEC; s++) {
+    const sec = s.toString().padStart(6, '0');
+    const count = metrics[`http_reqs{sec:${sec}}`]?.values?.count ?? 0;
+    const avg = metrics[`http_req_duration{sec:${sec}}`]?.values?.avg ?? '';
+    const p95 = metrics[`http_req_duration{sec:${sec}}`]?.values?.['p(95)'] ?? '';
+    if (count > 0) {
+      csv += `${s},${count},${avg || 0},${p95 || 0}\n`;
+    }
+  }
+  
+  return { 'light_timeseries.csv': csv };
+}
+
+function parseDuration(duration) {
+  const match = duration.match(/(\d+)([smh])/);
+  if (!match) return 30; // default
+  const [, num, unit] = match;
+  const n = parseInt(num);
+  if (unit === 's') return n;
+  if (unit === 'm') return n * 60;
+  if (unit === 'h') return n * 3600;
+  return 30;
 }

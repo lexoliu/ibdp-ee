@@ -7,7 +7,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -22,54 +21,6 @@ from typing import Callable, Dict, List, Tuple
 ROOT = Path(__file__).resolve().parent
 K6_DIR = ROOT / "k6"
 RESULTS_ROOT = ROOT / "results"
-JSONL_SCRIPT_PATH = ROOT / "scripts" / "jsonl_timeseries.rs"
-_RUST_SCRIPT_CMD: list[str] | None = None
-
-
-def _locate_rust_script() -> list[str]:
-    global _RUST_SCRIPT_CMD
-    if _RUST_SCRIPT_CMD is not None:
-        return _RUST_SCRIPT_CMD
-
-    for binary in ("rust-script", "cargo-script"):
-        path = shutil.which(binary)
-        if path:
-            _RUST_SCRIPT_CMD = [path]
-            return _RUST_SCRIPT_CMD
-
-    cargo = shutil.which("cargo")
-    if cargo is None:
-        fallback = Path.home() / ".cargo" / "bin" / "cargo"
-        if fallback.exists():
-            cargo = str(fallback)
-    if cargo is not None:
-        probe = subprocess.run(
-            [cargo, "script", "-V"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        if probe.returncode == 0:
-            _RUST_SCRIPT_CMD = [cargo, "script"]
-            return _RUST_SCRIPT_CMD
-
-    raise RuntimeError(
-        "cargo-script / rust-script not found. Install via `cargo install cargo-script` or `cargo install rust-script`."
-    )
-
-
-def convert_jsonl_to_csv(jsonl_path: Path, csv_path: Path) -> None:
-    if not JSONL_SCRIPT_PATH.exists():
-        raise RuntimeError(f"JSONL converter script missing: {JSONL_SCRIPT_PATH}")
-
-    base_cmd = _locate_rust_script()
-    cmd = base_cmd + [str(JSONL_SCRIPT_PATH), str(jsonl_path), str(csv_path)] # Rust-script use release mode by default
-
-
-    proc = subprocess.run(cmd, cwd=str(ROOT))
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"jsonl_timeseries script failed with exit code {proc.returncode}"
-        )
 
 TEST_SCRIPTS = {
     "prime": K6_DIR / "prime.js",
@@ -81,7 +32,7 @@ DEFAULT_TEST_ORDER = ["prime", "light", "kv"]
 
 MODE_DEFAULTS = {
     "debug": {"duration": "2s", "repeats": 1},
-    "normal": {"duration": "10m", "repeats": 2},
+    "normal": {"duration": "5m", "repeats": 2}, # One prewarm, one measured
 }
 
 
@@ -96,7 +47,7 @@ def parse_args() -> argparse.Namespace:
         help="Subset of tests to run",
     )
     parser.add_argument("--base-url", default=os.environ.get("BASE_URL", "http://127.0.0.1:8080"))
-    parser.add_argument("--mode", choices=MODE_DEFAULTS.keys(), default=os.environ.get("MODE", "normal"), help="Select run mode: debug=10s smoke, normal=10m stress")
+    parser.add_argument("--mode", choices=MODE_DEFAULTS.keys(), default=os.environ.get("MODE", "normal"), help="Select run mode: debug=2s smoke, normal=5m stress")
     parser.add_argument("--vus", type=int, default=int(os.environ.get("VUS", "64")))
     parser.add_argument(
         "--duration",
@@ -152,7 +103,7 @@ def run_k6(
     attempt: int,
     total_attempts: int,
 ) -> Tuple[Path, Path]:
-    json_path = output_dir / f"{test}.jsonl"
+    csv_path = output_dir / f"{test}_timeseries.csv"  # Will be created by k6 handleSummary
     summary_path = output_dir / f"{test}_summary.json"
 
     cmd = [
@@ -164,27 +115,23 @@ def run_k6(
         duration,
         "--summary-export",
         str(summary_path),
-        "--out",
-        f"json={json_path}",
-        str(script),
+        str(script.resolve()),  # Use absolute path since we change cwd
     ]
 
     env = os.environ.copy()
     env.setdefault("BASE_URL", base_url)
     env.setdefault("K6_BASE_URL", base_url)
-
-    period = "1s"
-    env.setdefault("K6_OUT_JSON_PERIOD", period)
+    env.setdefault("K6_DURATION", duration)
 
     attempt_note = f" (attempt {attempt}/{total_attempts})" if total_attempts > 1 else ""
-    print(f"Running {' '.join(cmd)}{attempt_note} [json period {period}]")
-    proc = subprocess.run(cmd, env=env)
+    print(f"Running {' '.join(cmd)}{attempt_note} [per-second aggregation via handleSummary]")
+    proc = subprocess.run(cmd, env=env, cwd=str(output_dir))
     if proc.returncode not in (0, 99):
         raise RuntimeError(f"k6 failed on {test} (exit {proc.returncode})")
     if proc.returncode == 99:
         print(f"⚠️  k6 thresholds breached for {test}, continuing")
 
-    return json_path, summary_path
+    return csv_path, summary_path
 
 
 def parse_summary(summary_path: Path) -> Dict[str, float]:
@@ -261,6 +208,16 @@ class MemorySampler:
             self._stop.wait(self._interval)
 
 
+def is_experiment_complete(output_dir: Path, tests: List[str]) -> Tuple[bool, List[str]]:
+    """Check if experiment is complete by verifying CSV files exist."""
+    missing_tests = []
+    for test in tests:
+        csv_file = output_dir / f"{test}_timeseries.csv"
+        if not csv_file.exists():
+            missing_tests.append(test)
+    return len(missing_tests) == 0, missing_tests
+
+
 def run_benchmark(
     language: str,
     base_url: str,
@@ -276,6 +233,7 @@ def run_benchmark(
     wait: int = 60,
     memory_probe: Callable[[], float | None] | None = None,
     memory_interval: float = 1.0,
+    skip_completed: bool = True,
 ) -> Tuple[Path, Dict[str, Dict[str, float]]]:
     tests = tests or list(DEFAULT_TEST_ORDER)
     mode_defaults = MODE_DEFAULTS[mode]
@@ -293,10 +251,22 @@ def run_benchmark(
     if repeats < 1:
         raise ValueError("Repeat count must be at least 1")
 
-    run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
     if output_dir is None:
-        output_dir = RESULTS_ROOT / language / run_id
+        output_dir = RESULTS_ROOT / language
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Check if experiment is already complete
+    if skip_completed:
+        is_complete, missing_tests = is_experiment_complete(output_dir, tests)
+        if is_complete:
+            print(f"Experiment for {language} already complete. Loading existing results...")
+            results_file = output_dir / "results.json"
+            if results_file.exists():
+                existing_data = json.loads(results_file.read_text())
+                return output_dir, existing_data.get("summary", {})
+        elif missing_tests:
+            print(f"Partially complete experiment. Missing tests: {missing_tests}")
+            tests = missing_tests  # Only run missing tests
 
     print(
         f"Mode: {mode} | duration: {duration} | repeats: {repeats} | "
@@ -315,7 +285,7 @@ def run_benchmark(
         if not script.exists():
             raise FileNotFoundError(f"k6 script missing: {script}")
 
-        final_json_path: Path | None = None
+        final_csv_path: Path | None = None
         final_summary_path: Path | None = None
         sampler: MemorySampler | None = None
 
@@ -324,7 +294,7 @@ def run_benchmark(
             sampler = MemorySampler(memory_probe, interval=memory_interval)
             sampler.start()
         for attempt in range(1, repeats + 1):
-            json_path, summary_path = run_k6(
+            csv_path, summary_path = run_k6(
                 test,
                 script,
                 base_url,
@@ -334,25 +304,30 @@ def run_benchmark(
                 attempt,
                 repeats,
             )
-            final_json_path = json_path
+            final_csv_path = csv_path
             final_summary_path = summary_path
 
         memory_samples: List[Tuple[float, float]] = []
         if sampler is not None:
             memory_samples = sampler.stop()
 
-        if not final_summary_path or not final_json_path:
-            raise RuntimeError("Expected k6 outputs were not produced")
+        if not final_summary_path:
+            raise RuntimeError("Expected k6 summary was not produced")
 
         summary[test] = parse_summary(final_summary_path)
 
-        convert_jsonl_to_csv(final_json_path, output_dir / f"{test}_timeseries.csv")
+        # CSV is generated directly by k6's handleSummary function
+        csv_file = output_dir / f"{test}_timeseries.csv"
+        if csv_file.exists():
+            print(f"Per-second CSV generated: {csv_file} ({csv_file.stat().st_size} bytes)")
+        else:
+            print(f"Warning: Expected CSV not found at {csv_file}")
 
         if memory_samples:
             write_memory_csv(memory_samples, output_dir / f"{test}_memory.csv")
 
         if not keep_raw:
-            final_json_path.unlink(missing_ok=True)
+            # Only delete summary file - CSV is the main output now
             final_summary_path.unlink(missing_ok=True)
 
     result_payload = {
@@ -363,8 +338,7 @@ def run_benchmark(
         "duration": duration,
         "mode": mode,
         "repeats": repeats,
-        "run_id": run_id,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now().isoformat(),
         "summary": summary,
     }
     (output_dir / "results.json").write_text(json.dumps(result_payload, indent=2))
