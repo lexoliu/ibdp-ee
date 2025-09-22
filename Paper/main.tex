@@ -91,11 +91,17 @@
 
 \section{Introduction}
 
-\subsection{Memory Management in Programming}
+Modern programming languages face a fundamental trade-off in memory management: explicit control versus automated safety. Languages like C and Rust demand manual memory management, offering precise control but requiring careful programming to avoid crashes and security vulnerabilities. In contrast, garbage-collected languages like Java and Go automate memory reclamation, reducing bugs but potentially introducing runtime overhead that affects application performance.
 
-Memory management shapes how programs allocate, reuse, and eventually release memory. Most languages separate stack and heap usage. Stack frames hold local variables and disappear automatically when a function returns, so programmers rarely intervene. Heap allocations last longer and require either explicit control (as in C or Rust) or a runtime that reconciles unused objects on the developer’s behalf.
+While garbage collection theory is well-established, empirical studies comparing GC and non-GC languages often conflate multiple performance factors. This research specifically isolates the impact of garbage collection by implementing algorithmically identical services across three strategically chosen languages: Rust (AOT-compiled, manual memory management), Go (AOT-compiled, garbage collected), and Java (JIT-compiled, garbage collected). This selection enables controlled comparison across both memory management strategies (manual vs. GC) and compilation approaches (AOT vs. JIT) to answer: \textbf{How do performance characteristics vary between GC and non-GC languages?}
 
-Modern ecosystems such as Java or Go rely on \textbf{garbage collection} (GC) to automate that reconciliation. GC removes a large class of correctness bugs, but introduces runtime work that may affect latency or throughput—precisely the trade-off this extended essay examines.
+The study evaluates three workload categories—compute-intensive, serialization, and allocation-heavy key-value operations—measuring throughput, latency, and memory consumption under controlled conditions. This approach provides evidence-based insights for developers making language selection decisions in performance-critical applications.
+
+\section{Background: Memory Management in Programming Languages}
+
+\subsection{Memory Management Fundamentals}
+
+Memory management shapes how programs allocate, reuse, and eventually release memory. Most languages separate stack and heap usage. Stack frames hold local variables and disappear automatically when a function returns, so programmers rarely intervene. Heap allocations last longer and require either explicit control (as in C or Rust) or a runtime that reconciles unused objects on the developer's behalf.
 
 \begin{figure}[h]
 \centering
@@ -131,20 +137,6 @@ Modern ecosystems such as Java or Go rely on \textbf{garbage collection} (GC) to
 
 Understanding the differences between stack and heap memory is crucial for analyzing how programming languages manage memory. In the following sections, we will explore how heap memory is managed through manual techniques and automatic algorithms such as garbage collection.
 
-\subsection{Research Motivation and Objectives}
-
-Languages that demand explicit memory free calls promise tight control, yet increase the chance of bugs; managed runtimes take the opposite stance. Prior studies acknowledge GC overhead, but rarely isolate it in service-style workloads that resemble modern web systems. This project therefore focuses on comparable implementations in Rust, Go, and Java to measure how GC changes user-visible performance. The core objectives are:
-
-\begin{itemize}
-    \item To quantify the performance differences between garbage-collected and manually managed languages in both compute-intensive and I/O-intensive tasks 
-    \item To identify specific scenarios where garbage collection overhead is most significant 
-    \item To analyze how modern garbage collection algorithms perform under different workload patterns 
-    \item To provide evidence-based insights for developers making language selection decisions for performance-critical applications 
-\end{itemize}
-
-While previous studies have examined language performance differences, they often conflate multiple factors such as runtime environments, compiler optimizations, and language features. This research specifically isolates the impact of garbage collection by controlling for other variables and implementing algorithmically identical solutions across languages.
-
-\section{Dynamic Memory Management: Evolution from Manual to Automatic}
 \subsection{The Challenge of Manual Memory Management}
 
 Early high-level languages such as C and C++ placed all responsibility for heap lifetime on the programmer. The approach delivers raw speed, yet common mistakes—memory leaks, dangling pointers, or double frees—can crash applications or open security holes. These recurring issues motivated automated schemes that keep the performance benefits while avoiding the sharpest edges.
@@ -177,7 +169,7 @@ Tracing collectors treat the heap as a graph rooted in stack and global referenc
 
 Mark-and-sweep alternates two passes. A mark phase follows pointers from the roots to label live objects; a sweep phase scans memory and frees anything unmarked. Modern collectors build on this template with generational heaps or concurrent marking, but the core intuition is unchanged.
 
-\section{No Silver Bullet: The Performance Overhead of Garbage Collectors}
+\subsection{The Performance Overhead of Garbage Collectors}
 "No silver bullet" applies here as well: removing manual memory bugs means accepting some runtime cost. Garbage collectors can introduce brief pauses, reserve extra heap space, and consume CPU cycles to locate dead objects. Quantifying when those effects matter is the empirical focus of the remainder of this essay.
 
 \section{Literature Review}
@@ -205,6 +197,16 @@ Therefore, this project seeks to contribute by:
 \label{sec:methodology}
 
 \subsection{Experimental Setup}
+
+The experimental design compared three languages representing different compilation and memory management strategies:
+
+\begin{itemize}
+    \item \textbf{Rust}: AOT-compiled with manual memory management, providing a baseline for deterministic performance
+    \item \textbf{Go}: AOT-compiled with concurrent garbage collection, isolating GC overhead from JIT effects
+    \item \textbf{Java}: JIT-compiled with generational garbage collection, representing managed runtime environments
+\end{itemize}
+
+This selection enables controlled analysis by separating garbage collection effects from compilation strategy effects, while covering the most common approaches in modern systems programming.
 
 Benchmarks were executed in two complementary environments to capture both on-device and hosted deployments:
 
@@ -243,9 +245,11 @@ Workloads were stressed using the \texttt{k6} load testing framework in \texttt{
 \begin{itemize}
     \item Virtual Users (VUs): 64 across all experiments
     \item Duration: 10 minutes per attempt, matching the harness default for \texttt{normal} mode
-    \item Repeats: two sequential attempts per workload, with the second attempt's artifacts recorded and analysed
+    \item Repeats: two sequential attempts per workload, with the first run serving as a pre-warm phase and the second run providing the measurement data
     \item Base URL: \texttt{http://127.0.0.1:8080} for local runs and the manager-advertised service host for Aliyun runs
 \end{itemize}
+
+The pre-warm procedure was essential for ensuring fair comparison, particularly for Java's JIT compiler which requires initial execution to optimize hot code paths. This two-phase approach eliminated JIT warm-up effects from the measurements while capturing steady-state performance characteristics.
 
 Each test produced JSON-formatted time-series data capturing:
 \begin{itemize}
@@ -357,15 +361,48 @@ Taken together, these results support the conclusion that garbage collection doe
 
 \section{Discussion}
 
+\subsection{Research Process and Challenges}
+
+Ensuring implementation consistency across languages presented the primary methodological challenge. Each language was implemented using its most popular web framework (Spring Boot for Java, standard library for Go, and standard library for Rust) with deliberately basic implementations to minimize framework-specific optimizations that could confound results.
+
+A critical issue emerged during Java benchmarking when the JVM crashed due to memory exhaustion under the KV workload. This required increasing the maximum heap size to 24GB, highlighting the substantial memory overhead that managed runtimes can impose even in controlled environments. This experience reinforced the importance of proper JVM tuning in production deployments.
+
+\subsection{Unexpected Findings and Performance Insights}
+
 The results provide nuanced insights into the performance impact of garbage collection:
 
+Counter to initial expectations, Java demonstrated comparable or superior throughput to both Go and Rust in certain scenarios, challenging assumptions about GC-imposed performance penalties. However, Rust consistently maintained superior latency characteristics across all workloads, suggesting that while GC languages can achieve competitive throughput, they struggle to match the predictability of manual memory management.
+
 \begin{itemize}
-    \item \textbf{JVM Runtime Overhead}: Java’s significant underperformance in allocation-free workloads demonstrates that JVM-related factors (JIT warm-up, runtime checks, object model) can dominate performance, independent of garbage collection. This makes Java less competitive in microservice scenarios requiring consistent low-latency computation.
-    \item \textbf{Predictability vs. Convenience}: Rust’s deterministic memory management ensures stable performance across workloads. Go trades some predictability for developer productivity, but its concurrent GC mitigates the worst-case pauses effectively.
+    \item \textbf{JVM Runtime Overhead}: Java's significant underperformance in allocation-free workloads demonstrates that JVM-related factors (JIT warm-up, runtime checks, object model) can dominate performance, independent of garbage collection. This makes Java less competitive in microservice scenarios requiring consistent low-latency computation.
+    \item \textbf{Predictability vs. Convenience}: Rust's deterministic memory management ensures stable performance across workloads. Go trades some predictability for developer productivity, but its concurrent GC mitigates the worst-case pauses effectively.
     \item \textbf{Workload Sensitivity}: Under compute-heavy workloads, GC overhead is negligible. Under allocation-heavy workloads, Rust maintains superior predictability, while Go remains competitive in throughput but exhibits occasional latency variance.
 \end{itemize}
 
 These findings suggest that the decision between GC and non-GC languages should consider not only peak throughput, but also latency guarantees and memory predictability under load.
+
+\subsection{Limitations and Future Work}
+
+This study's laboratory setting may not fully represent real-world deployment conditions where network latency, concurrent users, and varying hardware configurations could alter performance characteristics. The controlled environment, while necessary for isolating GC effects, abstracts away many production complexities that influence language selection decisions.
+
+Future research should investigate performance under production-like conditions including:
+\begin{itemize}
+    \item Network-distributed client-server architectures with realistic network latency
+    \item Varying concurrent load patterns that better simulate user behavior
+    \item Different hardware configurations and resource constraints
+    \item Extended runtime periods to capture long-term GC behavior and memory fragmentation effects
+\end{itemize}
+
+\subsection{Real-World Engineering Implications}
+
+The findings provide actionable insights for software engineering teams:
+
+\begin{itemize}
+    \item \textbf{Microservices Architecture}: Rust's consistent low latency makes it well-suited for latency-critical microservices, while Go offers a balanced trade-off between performance and development velocity.
+    \item \textbf{Resource-Constrained Environments}: The substantial memory overhead observed in Java (requiring 24GB heap) suggests careful consideration is needed for containerized or edge deployments.
+    \item \textbf{Performance SLA Requirements}: Teams with strict tail-latency requirements should favor Rust, while those prioritizing developer productivity with acceptable latency variance may choose Go.
+    \item \textbf{JVM Tuning Importance}: The Java memory crash highlights that proper JVM configuration is essential for production deployments, adding operational complexity.
+\end{itemize}
 
 \section{Conclusion}
 
