@@ -47,7 +47,7 @@ DEFAULT_TEST_ORDER = ["prime", "light", "kv"]
 
 MODE_DEFAULTS = {
     "debug": {"duration": "2s", "repeats": 1},
-    "normal": {"duration": "5m", "repeats": 2}, # One prewarm, one measured
+    "normal": {"duration": "10m", "repeats": 2}, # One prewarm, one measured
 }
 
 
