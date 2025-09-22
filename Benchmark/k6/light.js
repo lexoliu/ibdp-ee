@@ -91,15 +91,17 @@ export default function () {
 
 export function handleSummary(data) {
   const metrics = data.metrics;
-  let csv = 'second,requests,avg_ms,p95_ms\n';
+  let csv = 'second,requests,avg_ms,p50_ms,p90_ms,p99_ms\n';
   
   for (let s = 0; s <= DURATION_SEC; s++) {
     const sec = s.toString().padStart(6, '0');
     const count = metrics[`http_reqs{sec:${sec}}`]?.values?.count ?? 0;
     const avg = metrics[`http_req_duration{sec:${sec}}`]?.values?.avg ?? '';
-    const p95 = metrics[`http_req_duration{sec:${sec}}`]?.values?.['p(95)'] ?? '';
+    const p50 = metrics[`http_req_duration{sec:${sec}}`]?.values?.['p(50)'] ?? '';
+    const p90 = metrics[`http_req_duration{sec:${sec}}`]?.values?.['p(90)'] ?? '';
+    const p99 = metrics[`http_req_duration{sec:${sec}}`]?.values?.['p(99)'] ?? '';
     if (count > 0) {
-      csv += `${s},${count},${avg || 0},${p95 || 0}\n`;
+      csv += `${s},${count},${avg || 0},${p50 || 0},${p90 || 0},${p99 || 0}\n`;
     }
   }
   

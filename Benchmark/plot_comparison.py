@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import csv
 import argparse
+import math
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -121,24 +122,52 @@ def load_memory_data(run_dir: Path, language: str, test: str) -> List[Tuple[int,
     return []
 
 
-def load_timeseries(run_dir: Path, test: str) -> List[Tuple[int, float, float]]:
+def load_timeseries(run_dir: Path, test: str) -> List[Dict[str, float]]:
     """Load throughput/latency timeseries for a test."""
     timeseries_file = run_dir / f"{test}_timeseries.csv"
     if not timeseries_file.exists():
         print(f"Warning: Timeseries file not found: {timeseries_file}")
         return []
 
-    data: List[Tuple[int, float, float]] = []
+    def _parse_float(row: Dict[str, str], keys: List[str], *, default: float) -> float:
+        for key in keys:
+            value = row.get(key)
+            if value in (None, ""):
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return default
+
+    data: List[Dict[str, float]] = []
     try:
         with timeseries_file.open("r", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
             for row in reader:
-                second = int(row["second"])
-                # K6 outputs requests per second, our old format was "throughput"
-                throughput = float(row.get("requests", row.get("throughput", "0")))
-                # K6 outputs avg_ms, our old format was "latency_ms"
-                latency = float(row.get("avg_ms", row.get("latency_ms", "0")))
-                data.append((second, throughput, latency))
+                try:
+                    second = int(row["second"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+
+                throughput = _parse_float(row, ["requests", "throughput"], default=0.0)
+                latency_avg = _parse_float(row, ["avg_ms", "latency_ms"], default=math.nan)
+                latency_p50 = _parse_float(
+                    row,
+                    ["p50_ms", "p(50)_ms", "p50"],
+                    default=latency_avg,
+                )
+                if math.isnan(latency_avg) and not math.isnan(latency_p50):
+                    latency_avg = latency_p50
+
+                data.append(
+                    {
+                        "second": float(second),
+                        "throughput": throughput,
+                        "latency_avg": latency_avg,
+                        "latency_p50": latency_p50,
+                    }
+                )
     except Exception as exc:
         print(f"Error reading timeseries from {timeseries_file}: {exc}")
         return []
@@ -172,7 +201,7 @@ def plot_comparison(
     test: str,
     duration_hint: int | None,
     memory_data: Dict[str, List[Tuple[int, float]]],
-    perf_data: Dict[str, List[Tuple[int, float, float]]],
+    perf_data: Dict[str, List[Dict[str, float]]],
     summary_data: Dict[str, Dict[str, float]],
     output_path: Path,
 ) -> None:
@@ -207,11 +236,17 @@ def plot_comparison(
     ax2.grid(True, alpha=0.3)
     
     for lang in languages:
-        if lang in perf_data and perf_data[lang]:
-            times = [t for t, _, _ in perf_data[lang]]
-            throughput = [th for _, th, _ in perf_data[lang]]
-            ax2.plot(times, throughput, label=lang.upper(), color=colors.get(lang, 'gray'), 
-                    linewidth=2)
+        points = perf_data.get(lang, [])
+        if points:
+            times = [point["second"] for point in points]
+            throughput = [point["throughput"] for point in points]
+            ax2.plot(
+                times,
+                throughput,
+                label=lang.upper(),
+                color=colors.get(lang, "gray"),
+                linewidth=2,
+            )
     
     ax2.legend()
     
@@ -222,15 +257,25 @@ def plot_comparison(
     ax3.grid(True, alpha=0.3)
     
     for lang in languages:
-        if lang in perf_data and perf_data[lang]:
-            times = [t for t, _, _ in perf_data[lang]]
-            latency = [lat for _, _, lat in perf_data[lang]]
-            ax3.plot(times, latency, label=lang.upper(), color=colors.get(lang, 'gray'), 
-                    linewidth=2)
+        points = perf_data.get(lang, [])
+        if not points:
+            continue
+
+        base_color = colors.get(lang, "gray")
+        times = np.array([point["second"] for point in points], dtype=float)
+        latency_p50 = np.array([point["latency_p50"] for point in points], dtype=float)
+
+        ax3.plot(
+            times,
+            latency_p50,
+            label=lang.upper(),
+            color=base_color,
+            linewidth=2.2,
+        )
     
     ax3.legend()
 
-    max_time = max((series[-1][0] for series in perf_data.values() if series), default=0)
+    max_time = max((series[-1]["second"] for series in perf_data.values() if series), default=0)
     x_limit = duration_hint if duration_hint else max_time
     if x_limit == 0:
         x_limit = max_time if max_time else 1
@@ -247,13 +292,18 @@ def plot_comparison(
     # Show summary statistics
     print("\n=== Summary Statistics ===")
     for lang in languages:
-        if lang in perf_data and perf_data[lang]:
-            throughput_values = [th for _, th, _ in perf_data[lang]]
-            latency_values = [lat for _, _, lat in perf_data[lang]]
+        points = perf_data.get(lang, [])
+        if points:
+            throughput_values = [point["throughput"] for point in points]
+            latency_values = [point["latency_avg"] for point in points]
             memory_values = [m for _, m in memory_data.get(lang, [])]
 
             avg_throughput = np.mean(throughput_values) if throughput_values else 0
-            avg_latency = np.mean(latency_values) if latency_values else 0
+            avg_latency = (
+                float(np.nanmean(latency_values))
+                if latency_values and not all(math.isnan(val) for val in latency_values)
+                else 0
+            )
             avg_memory = np.mean(memory_values) if memory_values else 0
 
             print(f"{lang.upper()}:")
@@ -301,7 +351,7 @@ def generate_plots(
         if verbose:
             print(f"\n=== Processing {test.upper()} test ===")
         memory_data: Dict[str, List[Tuple[int, float]]] = {}
-        perf_data: Dict[str, List[Tuple[int, float, float]]] = {}
+        perf_data: Dict[str, List[Dict[str, float]]] = {}
         summary_slice: Dict[str, Dict[str, float]] = {}
 
         for language, run_dir in run_entries:

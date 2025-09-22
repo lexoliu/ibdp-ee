@@ -102,7 +102,7 @@ Common flags:
 The runner writes each benchmark into `results/<language>/<timestamp>/` with:
 
 - `results.json` – Summary metrics per test and metadata about the run.
-- `<test>_timeseries.csv` – Requests-per-second and latency per second.
+- `<test>_timeseries.csv` – Requests-per-second plus latency percentiles (p50/p90/p99) recorded each second.
 - `<test>_memory.csv` – Average RSS (MB) per second while the test executed.
 - Optional raw k6 outputs if `--keep-raw` is set.
 
