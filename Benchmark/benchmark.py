@@ -432,11 +432,18 @@ def run_benchmark(
                     _fill_missing_kv_entries(base_url, entries, expected_entries, kv_key_space)
                     # Verify after filling
                     new_entries = fetch_kv_entries(base_url)
+                    if new_entries is None:
+                        raise RuntimeError("Unable to verify KV occupancy after auto-fill")
+
                     print(f"After auto-fill: {new_entries} entries")
                     if new_entries == expected_entries:
                         print("KV occupancy verified after auto-fill.")
                     else:
-                        print(f"WARNING: Auto-fill incomplete, still {expected_entries - new_entries} entries short")
+                        deficit = expected_entries - new_entries
+                        if deficit > 0:
+                            print(f"WARNING: Auto-fill incomplete, still {deficit} entries short")
+                        else:
+                            print("WARNING: Auto-fill overshot expected occupancy; continuing")
                 else:
                     print("KV occupancy acceptable (slightly over expected).")
             else:
