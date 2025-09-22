@@ -8,6 +8,8 @@ import argparse
 import json
 import shutil
 import sys
+import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple
@@ -26,6 +28,7 @@ except ModuleNotFoundError as exc:
     sys.exit(1)
 
 from benchmark import DEFAULT_TEST_ORDER, MODE_DEFAULTS, run_benchmark
+from notifications import EmailNotifier
 
 RESULTS_ROOT = Path(__file__).resolve().parent / "results"
 DEFAULT_LANGUAGES = ["java", "go", "rust"]
@@ -257,95 +260,159 @@ def make_memory_probe(args: argparse.Namespace) -> Callable[[], float | None]:
 
 
 def main() -> int:
-    args = parse_args()
-    missing = [cmd for cmd in REQUIRED_COMMANDS if shutil.which(cmd) is None]
-    if missing:
-        print(
-            "Missing required commands: "
-            + ", ".join(missing)
-            + ". Run install_client.sh and ensure dependencies are installed.",
-            file=sys.stderr,
-        )
-        return 1
-
-    if args.manager_url:
-        args.manager_url = args.manager_url.rstrip("/")
-    else:
-        host = args.service_host
-        if host in {"0.0.0.0", "::", ""}:
-            host = args.health_host or "127.0.0.1"
-        args.manager_url = f"http://{host}:{args.manager_port}"
-
-    manager_host = _manager_host(args)
-
-    if not args.health_host:
-        if args.service_host in {"0.0.0.0", "::", ""}:
-            args.health_host = manager_host
-        else:
-            args.health_host = args.service_host
-
-    status_url = args.manager_url + "/status"
+    start_time = time.time()
+    notifier = EmailNotifier()
+    current_language = None
+    current_test = None
+    
     try:
-        _json_request(status_url, timeout=args.manager_timeout)
-    except RuntimeError as exc:
-        print(
-            f"Manager not reachable at {status_url}: {exc}. "
-            "Ensure manager.py is running or adjust --manager-url/--manager-port.",
-            file=sys.stderr,
-        )
-        return 1
-
-    print(f"Using manager API at {args.manager_url}")
-
-    if args.debug and args.mode != "debug":
-        print("Debug flag provided; forcing mode=debug")
-        args.mode = "debug"
-    plots_dir = args.plots_dir or (RESULTS_ROOT / "plots")
-    memory_probe = make_memory_probe(args)
-    run_entries: List[Tuple[str, Path]] = []
-
-    for language in args.languages:
-        base_url = compute_base_url(args, language)
-        print(f"\n=== Benchmarking {language.upper()} ===")
-        print(f"Using base URL: {base_url}")
-        service_meta: Dict[str, object] | None = None
-        try:
-            service_meta = start_remote_service(args, language)
-            label = f"{args.label_prefix}-{language}" if args.label_prefix else f"{language}-{args.mode}"
-            output_dir, summary = run_benchmark(
-                language,
-                base_url,
-                args.tests,
-                mode=args.mode,
-                vus=args.vus,
-                duration_override=args.duration,
-                repeats_override=args.repeats,
-                keep_raw=args.keep_raw,
-                label=label,
-                memory_probe=memory_probe,
-                memory_interval=args.memory_interval,
-                skip_completed=not args.force,
+        args = parse_args()
+        missing = [cmd for cmd in REQUIRED_COMMANDS if shutil.which(cmd) is None]
+        if missing:
+            error_msg = f"Missing required commands: {', '.join(missing)}. Run install_client.sh and ensure dependencies are installed."
+            print(error_msg, file=sys.stderr)
+            notifier.send_failure_email(
+                error_message="Missing required dependencies",
+                error_details=error_msg,
+                duration=time.time() - start_time
             )
-            run_entries.append((language, output_dir))
-        except Exception as exc:
-            print(f"Error while benchmarking {language}: {exc}", file=sys.stderr)
             return 1
-        finally:
-            stop_remote_service(args)
-            if service_meta:
-                log_path = service_meta.get("log_path")
-                if log_path:
-                    print(f"Service log: {log_path}")
 
-    if args.skip_plots:
-        print("Skipping plot generation as requested")
+        if args.manager_url:
+            args.manager_url = args.manager_url.rstrip("/")
+        else:
+            host = args.service_host
+            if host in {"0.0.0.0", "::", ""}:
+                host = args.health_host or "127.0.0.1"
+            args.manager_url = f"http://{host}:{args.manager_port}"
+
+        manager_host = _manager_host(args)
+
+        if not args.health_host:
+            if args.service_host in {"0.0.0.0", "::", ""}:
+                args.health_host = manager_host
+            else:
+                args.health_host = args.service_host
+
+        status_url = args.manager_url + "/status"
+        try:
+            _json_request(status_url, timeout=args.manager_timeout)
+        except RuntimeError as exc:
+            error_msg = f"Manager not reachable at {status_url}: {exc}. Ensure manager.py is running or adjust --manager-url/--manager-port."
+            print(error_msg, file=sys.stderr)
+            notifier.send_failure_email(
+                error_message="Cannot reach benchmark manager",
+                error_details=error_msg,
+                duration=time.time() - start_time
+            )
+            return 1
+
+        print(f"Using manager API at {args.manager_url}")
+
+        if args.debug and args.mode != "debug":
+            print("Debug flag provided; forcing mode=debug")
+            args.mode = "debug"
+        plots_dir = args.plots_dir or (RESULTS_ROOT / "plots")
+        memory_probe = make_memory_probe(args)
+        run_entries: List[Tuple[str, Path]] = []
+        all_results = {}
+
+        for language in args.languages:
+            current_language = language
+            base_url = compute_base_url(args, language)
+            print(f"\n=== Benchmarking {language.upper()} ===")
+            print(f"Using base URL: {base_url}")
+            service_meta: Dict[str, object] | None = None
+            try:
+                service_meta = start_remote_service(args, language)
+                label = f"{args.label_prefix}-{language}" if args.label_prefix else f"{language}-{args.mode}"
+                output_dir, summary = run_benchmark(
+                    language,
+                    base_url,
+                    args.tests,
+                    mode=args.mode,
+                    vus=args.vus,
+                    duration_override=args.duration,
+                    repeats_override=args.repeats,
+                    keep_raw=args.keep_raw,
+                    label=label,
+                    memory_probe=memory_probe,
+                    memory_interval=args.memory_interval,
+                    skip_completed=not args.force,
+                )
+                run_entries.append((language, output_dir))
+                
+                # Store results for email notification
+                if summary:
+                    all_results[language] = summary
+                    
+            except Exception as exc:
+                error_msg = f"Error while benchmarking {language}: {exc}"
+                print(error_msg, file=sys.stderr)
+                notifier.send_failure_email(
+                    error_message=f"Benchmark failed for {language}",
+                    error_details=f"{error_msg}\n\nTraceback:\n{traceback.format_exc()}",
+                    language=language,
+                    duration=time.time() - start_time
+                )
+                return 1
+            finally:
+                stop_remote_service(args)
+                if service_meta:
+                    log_path = service_meta.get("log_path")
+                    if log_path:
+                        print(f"Service log: {log_path}")
+
+        current_language = None
+
+        if not args.skip_plots:
+            print(f"\nGenerating plots in {plots_dir}")
+            try:
+                generate_plots(run_entries, args.tests, plots_dir, None, verbose=True)
+            except Exception as exc:
+                error_msg = f"Error generating plots: {exc}"
+                print(error_msg, file=sys.stderr)
+                notifier.send_failure_email(
+                    error_message="Plot generation failed",
+                    error_details=f"{error_msg}\n\nTraceback:\n{traceback.format_exc()}",
+                    duration=time.time() - start_time
+                )
+                return 1
+        else:
+            print("Skipping plot generation as requested")
+
+        # Send success notification
+        total_duration = time.time() - start_time
+        notifier.send_completion_email(
+            duration=total_duration,
+            results=all_results,
+            languages=args.languages,
+            tests=args.tests
+        )
+
+        print("\nBenchmark workflow completed.")
         return 0
-
-    print(f"\nGenerating plots in {plots_dir}")
-    generate_plots(run_entries, args.tests, plots_dir, None, verbose=True)
-
-    print("\nBenchmark workflow completed.")
-    return 0
+        
+    except KeyboardInterrupt:
+        notifier.send_failure_email(
+            error_message="Benchmark workflow interrupted by user",
+            error_details="Workflow was cancelled via Ctrl+C",
+            language=current_language,
+            test=current_test,
+            duration=time.time() - start_time
+        )
+        raise
+    except Exception as exc:
+        error_msg = f"Unexpected error in benchmark workflow: {exc}"
+        print(error_msg, file=sys.stderr)
+        notifier.send_failure_email(
+            error_message="Unexpected workflow failure",
+            error_details=f"{error_msg}\n\nTraceback:\n{traceback.format_exc()}",
+            language=current_language,
+            test=current_test,
+            duration=time.time() - start_time
+        )
+        raise
 
 
 if __name__ == "__main__":
