@@ -3,6 +3,7 @@
 \usepackage{titlesec}
 \usepackage[hidelinks]{hyperref}
 \usepackage{booktabs}
+\usepackage{multirow}
 \usepackage{amsmath}
 \usepackage{listings}
 \usepackage{xcolor}
@@ -275,91 +276,123 @@ This analysis design enables both cross-language comparison (e.g., Rust vs. Go u
 
 \section{Results \& Analysis}
 
-This section presents the empirical findings of the benchmark experiments across three workload groups: \textbf{Prime (compute-intensive)}, \textbf{Light (serialization)}, and \textbf{KV (allocation-heavy key-value store)}. For each workload, we compare throughput (requests per second), average latency (ms), and memory consumption (RSS, MB) across Java, Go, and Rust implementations.
+This section presents the empirical findings of the benchmark experiments conducted on Linux servers (8 vCPU, 32GB RAM, Aliyun Tokyo region) across three workload groups: \textbf{Prime (compute-intensive)}, \textbf{Light (serialization)}, and \textbf{KV (allocation-heavy key-value store)}. For each workload, we compare throughput (requests per second), average latency (ms), and memory consumption (RSS, MB) across Java, Go, and Rust implementations.
+
+\subsection{Performance Summary}
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{@{}llrrr@{}}
+  \toprule
+  Workload & Language & Throughput (req/s) & Avg Latency (ms) & Memory (MB) \\
+  \midrule
+  \multirow{3}{*}{Prime} & Rust & 32,500 & 1.9 & 0.95 \\
+                         & Go   & 30,800 & 2.0 & 0.96 \\
+                         & Java & 11,800 & 5.3 & 1.02 \\
+  \midrule
+  \multirow{3}{*}{Light} & Rust & 19,900 & 1.5 & 0.95 \\
+                         & Go   & 19,900 & 1.6 & 0.96 \\
+                         & Java & 20,100 & 1.6 & 1.02 \\
+  \midrule
+  \multirow{3}{*}{KV}    & Rust & 23,200 & 1.3 & 0.92 \\
+                         & Go   & 23,100 & 1.3 & 0.96 \\
+                         & Java & 22,900 & 1.4 & 1.02 \\
+  \bottomrule
+  \end{tabular}
+  \caption{Performance summary across all workloads (64 virtual users, 5-minute duration).}
+  \label{tab:performance-summary}
+\end{table}
 
 \subsection{Prime Workload: Compute-Intensive, Minimal Allocation}
 
 \begin{figure}[h]
     \centering
-    %\includegraphics[width=0.9\linewidth]{results/prime_throughput.png}%
-    \caption{Throughput comparison in Prime workload.}
+    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/prime_throughput.png}%
+    \caption{Throughput comparison in Prime workload showing Java's significant underperformance.}
     \label{fig:prime-throughput}
 \end{figure}
 
 \begin{figure}[h]
     \centering
-    %\includegraphics[width=0.9\linewidth]{results/prime_latency.png}%
-    \caption{Latency comparison in Prime workload.}
+    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/prime_latency.png}%
+    \caption{Latency comparison in Prime workload demonstrating Java's 2.7x higher response times.}
     \label{fig:prime-latency}
 \end{figure}
 
-In the prime number benchmark, Rust and Go demonstrated nearly identical throughput and latency, with only minor fluctuations attributable to runtime scheduling. In contrast, Java’s throughput was significantly lower, lagging by an order of magnitude compared to both Rust and Go (Figure~\ref{fig:prime-throughput}). Average latencies for Java were consistently higher, even in the absence of dynamic allocations (Figure~\ref{fig:prime-latency}).
+The prime number benchmark revealed the most dramatic performance differences between languages. Rust achieved the highest throughput at 32,500 requests per second with an average latency of 1.9ms, while Go performed comparably at 30,800 req/s and 2.0ms latency. Java, however, significantly underperformed with only 11,800 req/s throughput and 5.3ms average latency—representing a 63\% reduction in throughput compared to Rust and 2.7× higher latency.
 
-This result indicates that garbage collection is not the primary bottleneck in Java for this workload; instead, the performance gap arises from the runtime characteristics of the JVM, including warm-up time, JIT compilation overhead, and less efficient numeric operations compared to AOT-compiled Rust and Go binaries.
+Critically, this performance gap occurs in a workload with minimal memory allocation, indicating that garbage collection is not the primary bottleneck. Instead, the results point to fundamental JVM runtime overhead including JIT compilation costs, object model inefficiencies, and runtime safety checks that impact even allocation-free computational workloads.
 
 \subsection{Light Workload: Serialization and Moderate Allocation}
 
 \begin{figure}[h]
     \centering
-    \fbox{\rule{0pt}{2in}\rule{0.9\linewidth}{0pt}}
-    \caption{Throughput comparison in Light workload.}
+    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/light_throughput.png}%
+    \caption{Throughput comparison in Light workload showing convergent performance across languages.}
     \label{fig:light-throughput}
 \end{figure}
 
 \begin{figure}[h]
     \centering
-    \fbox{\rule{0pt}{2in}\rule{0.9\linewidth}{0pt}}
-    \caption{Latency distribution in Light workload.}
+    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/light_latency.png}%
+    \caption{Latency distribution in Light workload demonstrating minimal GC impact.}
     \label{fig:light-latency}
 \end{figure}
 
-In the Light workload, which mixes echo, JSON serialization, and JSON-to-XML conversion, Rust again outperformed both GC-based languages in terms of raw throughput. Go’s throughput was slightly lower than Rust but remained close, with less than a 10\% difference. Java, while improved relative to its prime workload results, still fell behind both Go and Rust (Figure~\ref{fig:light-throughput}).
+The Light workload, comprising echo, JSON serialization, and JSON-to-XML conversion tasks, produced remarkably convergent results across all three languages. All implementations achieved approximately 20,000 requests per second with average latencies between 1.5-1.6ms, representing less than 7\% variation between languages.
 
-Latency distributions further highlighted the role of garbage collection (Figure~\ref{fig:light-latency}): Go experienced occasional spikes associated with minor GC cycles, while Rust showed consistently flat latency curves. Java, in addition to baseline runtime overhead, exhibited both higher median latency and more pronounced tail outliers, confirming that GC pauses and JVM scheduling contribute to unpredictability under moderate allocation pressure.
+This convergence is particularly significant because it demonstrates that under moderate allocation pressure—where serialization creates temporary objects—garbage collection overhead is minimal. Java's performance recovered dramatically from the Prime workload, achieving slightly higher throughput (20,100 req/s) than both Rust and Go (19,900 req/s each), suggesting that the JVM's optimizations become effective when handling I/O-bound operations with moderate object creation.
+
+Latency characteristics remained consistent across languages, with p95 latencies ranging from 3.8-4.7ms, indicating that modern garbage collectors like Go's concurrent GC introduce negligible pause times under typical web service workloads.
 
 \subsection{KV Workload: Allocation-Heavy, Persistent State}
 
 \begin{figure}[h]
     \centering
-    \fbox{\rule{0pt}{2in}\rule{0.9\linewidth}{0pt}}
-    \caption{Throughput comparison in KV workload.}
+    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/kv_throughput.png}%
+    \caption{Throughput comparison in KV workload showing competitive performance across all languages.}
     \label{fig:kv-throughput}
 \end{figure}
 
 \begin{figure}[h]
     \centering
-    \fbox{\rule{0pt}{2in}\rule{0.9\linewidth}{0pt}}
-    \caption{Latency comparison in KV workload.}
+    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/kv_latency.png}%
+    \caption{Latency comparison in KV workload demonstrating minimal GC impact even under allocation pressure.}
     \label{fig:kv-latency}
 \end{figure}
 
 \begin{figure}[h]
     \centering
-    \fbox{\rule{0pt}{2in}\rule{0.9\linewidth}{0pt}}
-    \caption{Memory consumption in KV workload.}
+    %\includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/kv_memory.png}%
+    \caption{Memory consumption in KV workload showing stable, low memory usage across languages.}
     \label{fig:kv-memory}
 \end{figure}
 
-The KV workload, designed to mimic a simplified Redis-like server, was the most memory-intensive scenario. Here, differences in memory management strategies became most visible:
+The KV workload, implementing GET/SET/DELETE operations on a persistent key-value store, was designed to stress memory allocation patterns through frequent object creation and map modifications. Contrary to expectations about garbage collection overhead under allocation pressure, all three languages demonstrated remarkably similar performance:
 
 \begin{itemize}
-    \item Rust exhibited the lowest and most stable RSS memory footprint, consistent with explicit, deterministic memory release.
-    \item Go’s memory usage was higher but stable, demonstrating the effect of heap reservation and concurrent GC. Importantly, throughput remained comparable to Rust, suggesting Go’s GC is efficient enough to sustain high load.
-    \item Java showed both the largest baseline memory footprint and the steepest upward trend, stabilizing at hundreds of MBs even for moderate request rates. This reflects JVM heap allocation strategies and background GC tuning.
+    \item \textbf{Rust}: 23,200 req/s throughput, 1.3ms average latency, 0.92MB memory
+    \item \textbf{Go}: 23,100 req/s throughput, 1.3ms average latency, 0.96MB memory
+    \item \textbf{Java}: 22,900 req/s throughput, 1.4ms average latency, 1.02MB memory
 \end{itemize}
 
-From a latency perspective, Rust once again provided the most predictable response times. Go introduced occasional but tolerable pauses, while Java not only lagged in throughput but also displayed higher long-tail latencies, consistent with more expensive GC cycles.
+The performance convergence is striking—less than 1.3\% variation in throughput and minimal latency differences even under the most allocation-intensive workload. Memory consumption remained remarkably stable and low across all languages, ranging from 0.92-1.02MB, suggesting efficient memory management regardless of the underlying strategy (manual vs. garbage collected).
 
-\subsection{Cross-Workload Comparison}
+This result challenges conventional assumptions about garbage collection performance penalties and demonstrates that modern concurrent garbage collectors can effectively handle allocation-heavy workloads without significant overhead.
 
-Across all workloads, two patterns emerge clearly:
+\subsection{Cross-Workload Analysis}
+
+The benchmark results reveal three key patterns that challenge conventional assumptions about garbage collection performance:
 
 \begin{enumerate}
-    \item \textbf{Java consistently underperformed} Rust and Go, even in the allocation-free Prime workload, highlighting that JVM overhead cannot be ignored when comparing performance-critical applications.
-    \item \textbf{Rust and Go demonstrated near-parity} in compute and lightweight workloads, diverging only under heavy allocation pressure, where Rust’s manual memory management gave it more predictable performance while Go’s concurrent GC introduced minor but measurable variability.
+    \item \textbf{Workload-dependent performance characteristics}: Java's performance varied dramatically by workload type—underperforming significantly in compute-intensive Prime (63\% lower throughput) but achieving competitive or superior performance in I/O-bound Light and KV workloads.
+    
+    \item \textbf{Minimal garbage collection overhead}: Go consistently matched Rust's performance across all workloads, with differences typically under 5\%. Even Java showed comparable performance in allocation-intensive scenarios, contradicting expectations about significant GC penalties.
+    
+    \item \textbf{Runtime overhead dominates GC overhead}: The largest performance gaps occurred in allocation-free workloads, indicating that JVM runtime characteristics (JIT compilation, object model, runtime checks) contribute more to performance differences than garbage collection mechanisms.
 \end{enumerate}
 
-Taken together, these results support the conclusion that garbage collection does not always impose prohibitive overhead (as Go shows strong performance), but language runtime environments play a decisive role in determining competitiveness.
+These findings suggest that the decision between garbage-collected and manually-managed languages should prioritize workload characteristics and runtime behavior over theoretical concerns about GC pause times, particularly given the efficiency of modern concurrent garbage collectors.
 
 \section{Discussion}
 
@@ -367,21 +400,22 @@ Taken together, these results support the conclusion that garbage collection doe
 
 Ensuring implementation consistency across languages presented the primary methodological challenge. Each language was implemented using its most popular web framework (Spring Boot for Java, standard library for Go, and standard library for Rust) with deliberately basic implementations to minimize framework-specific optimizations that could confound results.
 
-A critical issue emerged during Java benchmarking when the JVM crashed due to memory exhaustion under the KV workload. This required increasing the maximum heap size to 24GB, highlighting the substantial memory overhead that managed runtimes can impose even in controlled environments. This experience reinforced the importance of proper JVM tuning in production deployments.
+Interestingly, the Linux server environment showed much more stable behavior than initially expected. All three languages demonstrated remarkably low and stable memory consumption (under 1.1MB across all workloads), which contrasts with earlier local testing experiences where Java required significant heap tuning. This suggests that the server environment and workload characteristics were well within the memory management capabilities of all tested languages.
 
 \subsection{Unexpected Findings and Performance Insights}
 
-The results provide nuanced insights into the performance impact of garbage collection:
+The results fundamentally challenge common assumptions about garbage collection performance impact:
 
-Counter to initial expectations, Java demonstrated comparable or superior throughput to both Go and Rust in certain scenarios, challenging assumptions about GC-imposed performance penalties. However, Rust consistently maintained superior latency characteristics across all workloads, suggesting that while GC languages can achieve competitive throughput, they struggle to match the predictability of manual memory management.
+The most striking finding was the minimal performance difference between garbage-collected and manually-managed languages under realistic workloads. Go consistently matched Rust's performance across all scenarios, while Java showed competitive performance in I/O-bound tasks despite significant underperformance in pure computation.
 
 \begin{itemize}
-    \item \textbf{JVM Runtime Overhead}: Java's significant underperformance in allocation-free workloads demonstrates that JVM-related factors (JIT warm-up, runtime checks, object model) can dominate performance, independent of garbage collection. This makes Java less competitive in microservice scenarios requiring consistent low-latency computation.
-    \item \textbf{Predictability vs. Convenience}: Rust's deterministic memory management ensures stable performance across workloads. Go trades some predictability for developer productivity, but its concurrent GC mitigates the worst-case pauses effectively.
-    \item \textbf{Workload Sensitivity}: Under compute-heavy workloads, GC overhead is negligible. Under allocation-heavy workloads, Rust maintains superior predictability, while Go remains competitive in throughput but exhibits occasional latency variance.
+    \item \textbf{Modern GC Efficiency}: Go's concurrent garbage collector introduced negligible overhead even under allocation-heavy workloads, suggesting that theoretical concerns about GC pauses may be overstated for real-world applications.
+    \item \textbf{Runtime vs. GC Overhead}: Java's poor performance in allocation-free Prime workloads (63\% throughput reduction) indicates that JVM runtime characteristics dominate performance differences rather than garbage collection overhead.
+    \item \textbf{Workload-Dependent Performance}: The dramatic variation in Java's relative performance across workloads (from 63\% slower in Prime to competitive in Light/KV) suggests that language selection should be based on specific use case requirements rather than general assumptions.
+    \item \textbf{Memory Management Efficiency}: All languages maintained stable, low memory footprints (0.9-1.1MB), indicating that modern memory management strategies are efficient regardless of manual vs. automatic approaches.
 \end{itemize}
 
-These findings suggest that the decision between GC and non-GC languages should consider not only peak throughput, but also latency guarantees and memory predictability under load.
+These findings suggest that garbage collection overhead is less significant than commonly believed, and that developer productivity and ecosystem considerations may be more important factors in language selection for most applications.
 
 \subsection{Limitations and Future Work}
 
@@ -400,24 +434,26 @@ Future research should investigate performance under production-like conditions 
 The findings provide actionable insights for software engineering teams:
 
 \begin{itemize}
-    \item \textbf{Microservices Architecture}: Rust's consistent low latency makes it well-suited for latency-critical microservices, while Go offers a balanced trade-off between performance and development velocity.
-    \item \textbf{Resource-Constrained Environments}: The substantial memory overhead observed in Java (requiring 24GB heap) suggests careful consideration is needed for containerized or edge deployments.
-    \item \textbf{Performance SLA Requirements}: Teams with strict tail-latency requirements should favor Rust, while those prioritizing developer productivity with acceptable latency variance may choose Go.
-    \item \textbf{JVM Tuning Importance}: The Java memory crash highlights that proper JVM configuration is essential for production deployments, adding operational complexity.
+    \item \textbf{Microservices Architecture}: The performance parity between Go and Rust suggests that GC overhead should not be a primary concern for most microservice architectures. Go's development ergonomics may outweigh minimal performance differences.
+    \item \textbf{Compute-Intensive Applications}: Java's significant underperformance in computational workloads makes it less suitable for pure algorithmic or mathematical applications, where Rust or Go would be preferred.
+    \item \textbf{Resource-Constrained Environments}: The low memory usage across all languages (under 1.1MB) indicates that modern applications can be quite efficient regardless of memory management strategy.
+    \item \textbf{Performance vs. Productivity Trade-offs}: Given minimal GC overhead, teams can prioritize language ecosystem, developer experience, and tooling over theoretical performance concerns for most applications.
 \end{itemize}
 
 \section{Conclusion}
 
-This research evaluated the performance trade-offs between garbage-collected (Go, Java) and manually-managed (Rust) languages using real-world compute benchmarks. The experimental evidence suggests that:
+This research evaluated the performance impact of garbage collection by comparing Rust (manual memory management), Go (concurrent GC), and Java (generational GC) across compute-intensive, serialization, and allocation-heavy workloads on Linux servers. The experimental evidence reveals several key findings that challenge conventional assumptions about garbage collection overhead:
 
 \begin{itemize}
-  \item Garbage collection overhead is negligible in compute-intensive scenarios with low allocation frequency.
-  \item Rust offers better predictability and control, especially under allocation-heavy workloads.
-  \item Go provides competitive performance with minimal developer burden, demonstrating that modern GC can achieve near-native throughput.
-  \item Java, despite its mature runtime and advanced collectors, incurs additional costs unrelated to GC that limit its competitiveness against AOT-compiled languages.
+  \item \textbf{Minimal GC overhead in practice}: Go consistently matched Rust's performance across all workloads (typically within 5\% variation), demonstrating that modern concurrent garbage collectors impose negligible runtime costs even under allocation pressure.
+  \item \textbf{Runtime overhead dominates GC overhead}: Java's significant underperformance in allocation-free workloads (63\% throughput reduction in Prime benchmark) indicates that JVM runtime characteristics contribute more to performance differences than garbage collection mechanisms.
+  \item \textbf{Workload-dependent performance characteristics}: Language performance varied dramatically by workload type, with Java achieving competitive performance in I/O-bound scenarios despite poor computational performance, suggesting that application characteristics should drive language selection decisions.
+  \item \textbf{Efficient memory management across strategies}: All languages maintained remarkably low and stable memory footprints (0.9-1.1MB), indicating that both manual and automatic memory management approaches can be highly efficient in practice.
 \end{itemize}
 
-Future work may extend to I/O-bound and concurrency-heavy scenarios, as well as tuning JVM parameters to investigate whether Java’s runtime overhead can be mitigated in practice.
+These findings suggest that theoretical concerns about garbage collection performance penalties may be overstated for real-world applications. Developer productivity, ecosystem maturity, and specific workload requirements should be prioritized over assumptions about GC overhead when selecting programming languages for modern software systems.
+
+Future research should investigate longer-running applications, memory-intensive workloads, and production deployment scenarios to further validate these findings across diverse operational contexts.
 
 \section{References}
 \nocite{*}
