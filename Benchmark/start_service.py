@@ -22,7 +22,7 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def java_command(host: str, port: int) -> tuple[str, dict, Path]:
-    jvm_args = "-Xms512m -Xmx1024m -XX:+UseG1GC -XX:+AlwaysPreTouch"
+    jvm_args = "-Xms4g -Xmx24g -XX:+UseG1GC -XX:+AlwaysPreTouch"
     run_args = [
         f"--server.port={port}",
         f"--server.address={host if host not in {'0.0.0.0', '::', ''} else '0.0.0.0'}",
