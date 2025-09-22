@@ -75,17 +75,59 @@ def parse_bool(value: Any, default: bool) -> bool:
 
 
 def _process_memory_mb(pid: int | None) -> float | None:
+    """Return RSS (MB) for a process and all of its descendant processes."""
+
     if not pid:
         return None
+
     try:
         output = subprocess.check_output(
-            ["ps", "-o", "rss=", "-p", str(pid)],
+            ["ps", "-eo", "pid=,ppid=,rss="],
             text=True,
         )
-        rss_kb = int(output.strip())
-        return rss_kb / 1024.0
     except Exception:
         return None
+
+    children: Dict[int, list[int]] = {}
+    rss_map: Dict[int, int] = {}
+
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        parts = stripped.split()
+        if len(parts) != 3:
+            continue
+        try:
+            pid_val = int(parts[0])
+            ppid_val = int(parts[1])
+            rss_val = int(parts[2])
+        except ValueError:
+            continue
+        rss_map[pid_val] = rss_val
+        children.setdefault(ppid_val, []).append(pid_val)
+
+    if pid not in rss_map and pid not in children:
+        return None
+
+    total_kb = 0
+    stack = [pid]
+    seen: set[int] = set()
+
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        rss_val = rss_map.get(current)
+        if rss_val is not None:
+            total_kb += rss_val
+        stack.extend(children.get(current, ()))
+
+    if not seen:
+        return None
+
+    return total_kb / 1024.0
 
 
 class ServiceManager:
