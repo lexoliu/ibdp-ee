@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::HashMap,
     sync::{Arc, RwLock},
 };
 
@@ -30,13 +30,13 @@ pub struct Engine {
 
 #[derive(Debug)]
 struct Budget {
-    map: BTreeMap<String, String>,
+    map: HashMap<String, String>,
 }
 
 impl Budget {
     pub fn new() -> Self {
         Self {
-            map: BTreeMap::new(),
+            map: HashMap::new(),
         }
     }
 
