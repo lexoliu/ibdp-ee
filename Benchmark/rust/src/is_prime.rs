@@ -63,8 +63,12 @@ pub fn is_prime(n: u64) -> bool {
     true
 }
 
-pub async fn handler(n: String) -> String {
-    match n.parse::<u64>() {
+pub async fn handler(body: String) -> String {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return "Invalid input".to_string();
+    }
+    match trimmed.parse::<u64>() {
         Ok(num) => {
             if is_prime(num) {
                 "true".to_string()

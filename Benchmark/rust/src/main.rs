@@ -15,10 +15,10 @@ fn logging_enabled() -> bool {
     match env::var("SERVER_LOG") {
         Ok(value) => {
             let text = value.trim().to_ascii_lowercase();
-            matches!(
-                text.as_str(),
-                "1" | "true" | "yes" | "on" | "log" | "debug"
-            )
+            if text.is_empty() {
+                return false;
+            }
+            !matches!(text.as_str(), "0" | "false" | "off" | "no")
         }
         Err(_) => false,
     }
