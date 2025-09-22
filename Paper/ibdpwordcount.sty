@@ -1,0 +1,82 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{ibdpwordcount}[2024/01/01 IBDP Extended Essay Word Count Package]
+
+% Required packages
+\RequirePackage{totcount}
+\RequirePackage{xstring}
+\RequirePackage{ifthen}
+
+% Register counters for word counting
+\newtotcounter{IBDPwords}
+\newtotcounter{IBDPtotalwords}
+
+% Command to count words in content
+\newcommand{\IBDPword}{\stepcounter{IBDPwords}\stepcounter{IBDPtotalwords}}
+
+% Internal command to process text and count words
+\newcommand{\IBDPcountwords}[1]{%
+    \StrSubstitute{#1}{ }{ \IBDPword}[\IBDPtemp]%
+    \IBDPword% Count the last word
+}
+
+% Command to mark the beginning of countable content
+\newcommand{\startwordcount}{%
+    \setcounter{IBDPwords}{0}%
+    \let\originalspace\ %
+    \renewcommand{\ }{\IBDPword\originalspace}%
+}
+
+% Command to mark the end of countable content
+\newcommand{\stopwordcount}{%
+    \let\ \originalspace%
+}
+
+% Display current word count
+\newcommand{\showwordcount}{%
+    \total{IBDPwords}%
+}
+
+% Display word count with IBDP status
+\newcommand{\IBDPwordcountstatus}{%
+    \newcount\IBDPcurrentcount%
+    \IBDPcurrentcount=\totvalue{IBDPwords}%
+    \newcount\IBDPremaining%
+    \IBDPremaining=4000%
+    \advance\IBDPremaining by -\IBDPcurrentcount%
+    \newcount\IBDPpercentage%
+    \IBDPpercentage=\IBDPcurrentcount%
+    \multiply\IBDPpercentage by 100%
+    \divide\IBDPpercentage by 40% (since 4000/100 = 40)
+    %
+    \textbf{Word Count:} \the\IBDPcurrentcount{} / 4,000 words%
+    \ifthenelse{\IBDPcurrentcount > 4000}{%
+        \textcolor{red}{ (OVER LIMIT by \the\numexpr\IBDPcurrentcount-4000\relax{} words)}%
+    }{%
+        \ifthenelse{\IBDPcurrentcount > 3800}{%
+            \textcolor{orange}{ (Near limit - \the\IBDPremaining{} words remaining)}%
+        }{%
+            \textcolor{green}{ (Within limit - \the\IBDPremaining{} words remaining)}%
+        }%
+    }%
+    
+    \textbf{Usage:} \the\numexpr\IBDPcurrentcount*100/4000\relax\% of limit%
+}
+
+% Simplified word count display
+\newcommand{\wordcount}{\total{IBDPwords}}
+
+% Hook into document processing
+\AtBeginDocument{%
+    \immediate\write18{python3 ../count_words.py main.tex > wordcount.tmp}%
+}
+
+% Command to include external word count
+\newcommand{\externalwordcount}{%
+    \IfFileExists{wordcount.tmp}{%
+        \input{wordcount.tmp}%
+    }{%
+        Word count unavailable (run with --shell-escape)%
+    }%
+}
+
+\endinput
