@@ -14,8 +14,8 @@ class EmailNotifier:
     def __init__(self):
         """Initialize the email notifier with Resend API configuration."""
         self.api_key = os.environ.get('RESEND_API_KEY')
-        self.from_email = os.environ.get('RESEND_FROM_EMAIL', 'benchmark@example.com')
-        self.to_emails = os.environ.get('RESEND_TO_EMAILS', '').split(',')
+        self.from_email = os.environ.get('RESEND_FROM_EMAIL', 'onboarding@resend.dev')
+        self.to_emails = os.environ.get('RESEND_TO_EMAILS', 'me@lexo.cool').split(',')
         self.enabled = os.environ.get('EMAIL_NOTIFICATIONS', 'false').lower() == 'true'
         
         if self.enabled and self.api_key:
