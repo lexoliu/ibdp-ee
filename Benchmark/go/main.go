@@ -193,6 +193,11 @@ func (e *KVEngine) Delete(id string) {
 	defer e.mu.Unlock()
 	delete(e.m, id)
 }
+func (e *KVEngine) Size() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return len(e.m)
+}
 
 func kvGetHandler(kv *KVEngine) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -225,6 +230,13 @@ func kvDeleteHandler(kv *KVEngine) http.HandlerFunc {
 		kv.Delete(id)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("Deleted value for " + id))
+	}
+}
+func kvStatsHandler(kv *KVEngine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		count := kv.Size()
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(map[string]int{"entries": count})
 	}
 }
 
@@ -334,6 +346,7 @@ func buildRouter(enableLogging bool) http.Handler {
 		sr.Get("/get/{id}", kvGetHandler(kv))
 		sr.Post("/set/{id}", kvSetHandler(kv))
 		sr.Delete("/delete/{id}", kvDeleteHandler(kv))
+		sr.Get("/stats", kvStatsHandler(kv))
 	})
 
 	return r

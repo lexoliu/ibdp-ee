@@ -8,4 +8,5 @@ public class KVEngine {
   public String get(String key) { return map.get(key); }
   public void set(String key, String value) { map.put(key, value); }
   public void delete(String key) { map.remove(key); }
+  public int size() { return map.size(); }
 }

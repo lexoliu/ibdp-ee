@@ -56,5 +56,6 @@ fn kv_router() -> Router {
         .route("/get/{id}", get(kv::get))
         .route("/set/{id}", post(kv::post))
         .route("/delete/{id}", delete(kv::delete))
+        .route("/stats", get(kv::stats))
         .with_state(Engine::new())
 }

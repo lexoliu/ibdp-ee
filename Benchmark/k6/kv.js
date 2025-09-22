@@ -1,5 +1,5 @@
 import http from 'k6/http';
-import { check, sleep } from 'k6';
+import { check, sleep, fail } from 'k6';
 
 // Parse duration to get total seconds for threshold generation
 const duration = __ENV.K6_DURATION || "30s";
@@ -26,6 +26,27 @@ export const options = {
 
 const base = __ENV.K6_BASE_URL || __ENV.BASE_URL || 'http://127.0.0.1:8080';
 const startTimestamp = Date.now();
+const MAX_RETRIES = parseInt(__ENV.K6_MAX_RETRIES || '5', 10);
+const RETRY_DELAY = parseFloat(__ENV.K6_RETRY_DELAY || '0.01');
+const KEY_SPACE = parseInt(__ENV.K6_KV_KEY_SPACE || '100000', 10);
+
+function requestWithRetry(fn, description) {
+  let attempt = 0;
+  let res;
+  while (attempt < MAX_RETRIES) {
+    res = fn();
+    if (res?.status === 200) {
+      check(res, { '200': (r) => r.status === 200 });
+      return res;
+    }
+    attempt += 1;
+    if (attempt < MAX_RETRIES) {
+      sleep(RETRY_DELAY);
+    }
+  }
+  check(res, { '200': (r) => r?.status === 200 });
+  fail(`${description} failed after ${MAX_RETRIES} attempts (status=${res?.status})`);
+}
 
 export default function () {
   // Add per-second tag
@@ -33,8 +54,23 @@ export default function () {
   const secTag = secIndex.toString().padStart(6, '0');
   
   // 80% get，18% set，2% delete
-  const id = `${__VU}-${__ITER % 100000}`;
+  const id = `${__VU}-${__ITER % KEY_SPACE}`;
   const r = Math.random();
+
+  if (__ITER < KEY_SPACE) {
+    requestWithRetry(
+      () => http.post(`${base}/kv/set/${id}`, 'v' + Math.random(), {
+        tags: {
+          name: 'kv-prime',
+          url: '/kv/set/:id',
+          sec: secTag,
+        },
+      }),
+      `kv-prime ${id}`,
+    );
+    sleep(0.001);
+    return;
+  }
 
   if (r < 0.80) {
     const res = http.get(`${base}/kv/get/${id}`, {
@@ -46,23 +82,39 @@ export default function () {
     });
     check(res, { '200': (r) => r.status === 200 });
   } else if (r < 0.98) {
-    const res = http.post(`${base}/kv/set/${id}`, 'v' + Math.random(), {
+    const params = {
       tags: {
         name: 'kv-set',
         url: '/kv/set/:id',
         sec: secTag,
       },
-    });
-    check(res, { '200': (r) => r.status === 200 });
+    };
+    requestWithRetry(
+      () => http.post(`${base}/kv/set/${id}`, 'v' + Math.random(), params),
+      `kv-set ${id}`,
+    );
   } else {
-    const res = http.del(`${base}/kv/delete/${id}`, null, {
+    const params = {
       tags: {
         name: 'kv-delete',
         url: '/kv/delete/:id',
         sec: secTag,
       },
-    });
-    check(res, { '200': (r) => r.status === 200 });
+    };
+    requestWithRetry(
+      () => http.del(`${base}/kv/delete/${id}`, null, params),
+      `kv-delete ${id}`,
+    );
+    requestWithRetry(
+      () => http.post(`${base}/kv/set/${id}`, 'v' + Math.random(), {
+        tags: {
+          name: 'kv-refill',
+          url: '/kv/set/:id',
+          sec: secTag,
+        },
+      }),
+      `kv-refill ${id}`,
+    );
   }
   sleep(0.001);
 }

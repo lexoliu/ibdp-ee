@@ -28,6 +28,8 @@ TEST_SCRIPTS = {
     "kv": K6_DIR / "kv.js",
 }
 
+KV_KEY_SPACE = int(os.environ.get("K6_KV_KEY_SPACE", "100000"))
+
 DEFAULT_TEST_ORDER = ["prime", "light", "kv"]
 
 MODE_DEFAULTS = {
@@ -122,6 +124,8 @@ def run_k6(
     env.setdefault("BASE_URL", base_url)
     env.setdefault("K6_BASE_URL", base_url)
     env.setdefault("K6_DURATION", duration)
+    if test == "kv":
+        env.setdefault("K6_KV_KEY_SPACE", str(KV_KEY_SPACE))
 
     attempt_note = f" (attempt {attempt}/{total_attempts})" if total_attempts > 1 else ""
     print(f"Running {' '.join(cmd)}{attempt_note} [per-second aggregation via handleSummary]")
@@ -132,6 +136,23 @@ def run_k6(
         print(f"⚠️  k6 thresholds breached for {test}, continuing")
 
     return csv_path, summary_path
+
+
+def fetch_kv_entries(base_url: str) -> int | None:
+    url = base_url.rstrip("/") + "/kv/stats"
+    request = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        print(f"Warning: failed to fetch KV stats from {url}: {exc}")
+        return None
+
+    entries = payload.get("entries") if isinstance(payload, dict) else None
+    if isinstance(entries, int):
+        return entries
+    print(f"Warning: KV stats response missing 'entries': {payload}")
+    return None
 
 
 def parse_summary(summary_path: Path) -> Dict[str, float]:
@@ -325,6 +346,17 @@ def run_benchmark(
 
         if memory_samples:
             write_memory_csv(memory_samples, output_dir / f"{test}_memory.csv")
+
+        if test == "kv":
+            entries = fetch_kv_entries(base_url)
+            expected_entries = vus * KV_KEY_SPACE
+            if entries is None:
+                raise RuntimeError("Unable to verify KV occupancy after benchmark run")
+            if entries != expected_entries:
+                raise RuntimeError(
+                    "KV occupancy check failed: "
+                    f"expected {expected_entries} entries but service reported {entries}"
+                )
 
         if not keep_raw:
             # Only delete summary file - CSV is the main output now

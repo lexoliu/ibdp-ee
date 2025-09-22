@@ -20,7 +20,8 @@ public class Routes {
         .path("/kv", kv -> kv
             .GET("/get/{id}", h::kvGet)
             .POST("/set/{id}", h::kvSet)
-            .DELETE("/delete/{id}", h::kvDelete))
+            .DELETE("/delete/{id}", h::kvDelete)
+            .GET("/stats", h::kvStats))
         .build();
   }
 

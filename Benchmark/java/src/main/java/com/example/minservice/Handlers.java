@@ -166,4 +166,10 @@ public class Handlers {
     return ServerResponse.ok().contentType(MediaType.TEXT_PLAIN)
         .bodyValue("Deleted value for " + id);
   }
+
+  public Mono<ServerResponse> kvStats(ServerRequest req) {
+    return ServerResponse.ok()
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue(Map.of("entries", kv.size()));
+  }
 }

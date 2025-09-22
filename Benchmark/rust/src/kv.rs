@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use axum::extract::{Path, State};
+use axum::{extract::{Path, State}, Json};
 
 pub async fn get(Path(id): Path<String>, State(engine): State<Engine>) -> String {
     let value = engine.get(&id);
@@ -21,6 +21,17 @@ pub async fn post(Path(id): Path<String>, State(engine): State<Engine>, content:
 pub async fn delete(Path(id): Path<String>, State(engine): State<Engine>) -> String {
     engine.delete(&id);
     format!("Deleted value for {}", id)
+}
+
+#[derive(serde::Serialize)]
+pub struct Stats {
+    entries: usize,
+}
+
+pub async fn stats(State(engine): State<Engine>) -> Json<Stats> {
+    Json(Stats {
+        entries: engine.len(),
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -73,5 +84,10 @@ impl Engine {
     pub fn delete(&self, key: &str) -> Option<String> {
         let mut budget = self.budget.write().unwrap();
         budget.delete(key)
+    }
+
+    pub fn len(&self) -> usize {
+        let budget = self.budget.read().unwrap();
+        budget.map.len()
     }
 }
