@@ -351,13 +351,19 @@ func main() {
 	addr := logHost + ":" + port
 
 	enableLogging := loggingEnabled()
+	handler := buildRouter(enableLogging)
+	server := &http.Server{
+		Addr:    addr,
+		Handler: handler,
+	}
 	if !enableLogging {
 		log.SetOutput(io.Discard)
+		server.ErrorLog = log.New(io.Discard, "", 0)
 	}
 	if enableLogging {
 		log.Printf("listening on http://%s\n", addr)
 	}
-	if err := http.ListenAndServe(addr, buildRouter(enableLogging)); err != nil {
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }
