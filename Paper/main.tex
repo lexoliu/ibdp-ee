@@ -460,7 +460,7 @@ These telemetry data provide direct evidence that modern garbage collectors intr
 
 \subsection{Memory Consumption Analysis}
 
-Memory measurements used RSS (Resident Set Size) via 1Hz \texttt{ps} sampling. For Prime and Light workloads, memory remained under 100MB due to minimal state retention. The KV workload showed distinct phases: fill phase (0-120s) where memory grew to ~900MB as 6.4M keys were inserted, then steady-state (120s+) with stable consumption. Theoretical calculation: 6.4M entries × ~150 bytes/entry (8-byte key + 8-byte value + hashmap overhead) $\approx$ 960MB, closely matching observed RSS values.
+Memory measurements used RSS (Resident Set Size) via 1Hz \texttt{ps} sampling, capturing total process memory including framework overhead and runtime systems. Prime and Light workloads showed significant baseline memory consumption: Java (5.8GB), Rust (4.2GB), and Go (2.9GB), reflecting JVM heap pre-allocation, runtime libraries, and framework initialization costs rather than workload-specific state. The KV workload showed distinct phases: fill phase (0-120s) where memory grew to ~900MB as 6.4M keys were inserted, then steady-state (120s+) with stable consumption. Theoretical calculation: 6.4M entries × ~150 bytes/entry (8-byte key + 8-byte value + hashmap overhead) $\approx$ 960MB, closely matching observed RSS values.
 
 \subsection{Cross-Workload Analysis}
 
