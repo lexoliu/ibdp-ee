@@ -332,20 +332,47 @@ def main() -> int:
             try:
                 service_meta = start_remote_service(args, language)
                 label = f"{args.label_prefix}-{language}" if args.label_prefix else f"{language}-{args.mode}"
-                output_dir, summary = run_benchmark_with_retry(
-                    language,
-                    base_url,
-                    args.tests,
-                    mode=args.mode,
-                    vus=args.vus,
-                    duration_override=args.duration,
-                    repeats_override=args.repeats,
-                    keep_raw=args.keep_raw,
-                    label=label,
-                    memory_probe=memory_probe,
-                    memory_interval=args.memory_interval,
-                    skip_completed=not args.force,
-                )
+                # Run benchmark with automatic retry for incomplete memory data
+                max_service_restarts = 2
+                for restart_attempt in range(max_service_restarts + 1):
+                    if restart_attempt > 0:
+                        print(f"\n=== Service restart attempt {restart_attempt}/{max_service_restarts} for {language} ===")
+                        print("Restarting service due to incomplete memory data...")
+                        stop_remote_service(args)
+                        time.sleep(5)  # Wait for clean shutdown
+                        service_meta = start_remote_service(args, language)
+                    
+                    output_dir, summary = run_benchmark_with_retry(
+                        language,
+                        base_url,
+                        args.tests,
+                        mode=args.mode,
+                        vus=args.vus,
+                        duration_override=args.duration,
+                        repeats_override=args.repeats,
+                        keep_raw=args.keep_raw,
+                        label=label,
+                        memory_probe=memory_probe,
+                        memory_interval=args.memory_interval,
+                        skip_completed=not args.force,
+                    )
+                    
+                    # Validate memory data completeness
+                    from benchmark import is_experiment_complete
+                    is_complete, missing_tests = is_experiment_complete(output_dir, args.tests)
+                    
+                    if is_complete:
+                        print(f"✓ All tests completed successfully for {language} with complete memory data")
+                        break
+                    elif restart_attempt < max_service_restarts:
+                        print(f"✗ Incomplete data detected for {language}: {missing_tests}")
+                        print(f"Will restart service and retry (attempt {restart_attempt + 1}/{max_service_restarts})")
+                        continue
+                    else:
+                        print(f"✗ Failed to get complete data for {language} after {max_service_restarts} service restarts")
+                        print(f"Missing data for tests: {missing_tests}")
+                        print("Proceeding with incomplete data...")
+                
                 run_entries.append((language, output_dir))
                 
                 # Store results for email notification

@@ -266,29 +266,74 @@ class MemorySampler:
         self._stop.set()
         if self._thread:
             self._thread.join()
-        samples = [(elapsed, value) for elapsed, value in self._samples if value is not None]
+        
+        total_samples = len(self._samples)
+        valid_samples = [(elapsed, value) for elapsed, value in self._samples if value is not None]
+        failed_samples = total_samples - len(valid_samples)
+        
+        if total_samples > 0:
+            success_rate = len(valid_samples) / total_samples * 100
+            print(f"Memory sampling summary: {len(valid_samples)}/{total_samples} samples valid ({success_rate:.1f}% success rate)")
+            if failed_samples > 0:
+                print(f"Warning: {failed_samples} memory samples failed during collection")
+        else:
+            print("Warning: No memory samples were collected at all")
+        
         self._samples.clear()
         self._stop.clear()
-        return samples
+        return valid_samples
 
     def _run(self) -> None:
+        consecutive_failures = 0
         while not self._stop.is_set():
             try:
                 value = self._probe()
-            except Exception:
+                if value is not None:
+                    consecutive_failures = 0
+                else:
+                    consecutive_failures += 1
+            except Exception as e:
+                consecutive_failures += 1
                 value = None
+                if consecutive_failures % 10 == 0:  # Log every 10 consecutive failures
+                    print(f"Warning: Memory probe failing consistently ({consecutive_failures} failures): {e}")
+            
             elapsed = time.time() - self._start_time
             self._samples.append((elapsed, value))
             self._stop.wait(self._interval)
 
 
 def is_experiment_complete(output_dir: Path, tests: List[str]) -> Tuple[bool, List[str]]:
-    """Check if experiment is complete by verifying CSV files exist."""
+    """Check if experiment is complete by verifying CSV files exist and memory data is present."""
     missing_tests = []
     for test in tests:
         csv_file = output_dir / f"{test}_timeseries.csv"
+        memory_file = output_dir / f"{test}_memory.csv"
+        
+        # Check if timeseries CSV exists and has data
         if not csv_file.exists():
             missing_tests.append(test)
+            continue
+            
+        # Check if memory CSV exists and has meaningful data
+        if not memory_file.exists() or memory_file.stat().st_size <= 50:  # Header + at least one data row
+            missing_tests.append(test)
+            print(f"Warning: Missing or incomplete memory data for {test} test")
+            continue
+            
+        # Verify timeseries has actual performance data (not all zeros)
+        try:
+            with csv_file.open('r') as f:
+                lines = f.readlines()
+                if len(lines) <= 5:  # Too few data points
+                    missing_tests.append(test)
+                    print(f"Warning: Insufficient timeseries data for {test} test ({len(lines)} lines)")
+                    continue
+        except Exception as e:
+            missing_tests.append(test)
+            print(f"Warning: Cannot validate timeseries data for {test} test: {e}")
+            continue
+            
     return len(missing_tests) == 0, missing_tests
 
 
@@ -410,6 +455,11 @@ def run_benchmark(
 
         if memory_samples:
             write_memory_csv(memory_samples, output_dir / f"{test}_memory.csv")
+        else:
+            print(f"WARNING: No memory data collected for {test} test! This indicates a problem with memory monitoring.")
+            # Create an empty memory file to mark the attempt
+            memory_file = output_dir / f"{test}_memory.csv"
+            memory_file.write_text("timestamp,memory_mb\n# No memory data collected - monitoring failed\n")
 
         if test == "kv":
             entries = fetch_kv_entries(base_url)
