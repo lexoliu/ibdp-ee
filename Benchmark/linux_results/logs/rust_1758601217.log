@@ -1,0 +1,18 @@
+   Compiling benchmark v0.1.0 (/root/ibdp-ee/Benchmark/rust)
+warning: function `checksum` is never used
+ --> src/checksum.rs:3:4
+  |
+3 | fn checksum(data: &[u8]) -> u32 {
+  |    ^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` on by default
+
+warning: function `handler` is never used
+ --> src/checksum.rs:8:14
+  |
+8 | pub async fn handler(data: Bytes) -> String {
+  |              ^^^^^^^
+
+warning: `benchmark` (bin "benchmark") generated 2 warnings
+    Finished `release` profile [optimized] target(s) in 3.91s
+     Running `target/release/benchmark`
