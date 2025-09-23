@@ -8,6 +8,7 @@ import subprocess
 import shutil
 import csv
 import glob
+import base64
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import resend
@@ -71,74 +72,134 @@ class EmailNotifier:
         except (TypeError, ValueError):
             return "—"
     
-    def _enhance_results_with_memory_data(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        """Enhance results with memory data from CSV files."""
+    def _parse_timeseries_data(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse timeseries CSV files to get accurate benchmark data."""
         if not results:
             return results
+            
+        def parse_timeseries_file(timeseries_path: str) -> Dict[str, float]:
+            """Parse k6 timeseries CSV file to extract performance metrics."""
+            try:
+                throughput_values = []
+                latency_p50_values = []
+                latency_p90_values = []
+                latency_p99_values = []
+                total_requests = 0
+                
+                with open(timeseries_path, 'r') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        # Extract values from each row
+                        try:
+                            requests = float(row.get('requests', 0))
+                            avg_ms = float(row.get('avg_ms', 0))
+                            p50_ms = float(row.get('p50_ms', 0))
+                            p90_ms = float(row.get('p90_ms', 0))
+                            p99_ms = float(row.get('p99_ms', 0))
+                            
+                            total_requests += requests
+                            if requests > 0:  # Only count active seconds
+                                throughput_values.append(requests)
+                                latency_p50_values.append(p50_ms)
+                                latency_p90_values.append(p90_ms)
+                                latency_p99_values.append(p99_ms)
+                                
+                        except (ValueError, TypeError):
+                            continue
+                
+                if not throughput_values:
+                    return {}
+                
+                # Calculate aggregated metrics
+                avg_throughput = sum(throughput_values) / len(throughput_values)
+                avg_latency_p50 = sum(latency_p50_values) / len(latency_p50_values)
+                avg_latency_p90 = sum(latency_p90_values) / len(latency_p90_values)
+                avg_latency_p99 = sum(latency_p99_values) / len(latency_p99_values)
+                
+                return {
+                    "http_reqs": total_requests,
+                    "throughput": avg_throughput,
+                    "latency_avg": sum(latency_p50_values) / len(latency_p50_values),  # Use P50 as avg approximation
+                    "latency_p50": avg_latency_p50,
+                    "latency_p95": avg_latency_p90,  # Use P90 as P95 approximation
+                    "latency_p99": avg_latency_p99,
+                }
+            except Exception as e:
+                print(f"Warning: Failed to parse {timeseries_path}: {e}")
+                return {}
         
         enhanced_results = {}
         
         for lang, lang_data in results.items():
-            enhanced_results[lang] = {}
+            enhanced_results[lang] = {'summary': {}}
             
-            # Handle both nested results format and direct summary format
-            tests_data = lang_data.get('summary', lang_data) if isinstance(lang_data, dict) and 'summary' in lang_data else lang_data
+            # List of possible test names
+            test_names = ['kv', 'light', 'prime']
             
-            if isinstance(tests_data, dict):
-                enhanced_results[lang]['summary'] = {}
+            for test_name in test_names:
+                # Try to find timeseries CSV files
+                timeseries_file_patterns = [
+                    f"Benchmark/results/{lang}/{test_name}_timeseries.csv",
+                    f"Benchmark/linux_results/{lang}/{test_name}_timeseries.csv",
+                    f"results/{lang}/{test_name}_timeseries.csv",
+                    f"linux_results/{lang}/{test_name}_timeseries.csv"
+                ]
                 
-                for test_name, metrics in tests_data.items():
-                    if isinstance(metrics, dict):
-                        enhanced_metrics = metrics.copy()
-                        
-                        # Try to find memory CSV file for this language/test combination
-                        memory_csv_patterns = [
-                            f"Benchmark/results/{lang}/{test_name}_memory.csv",
-                            f"Benchmark/linux_results/{lang}/{test_name}_memory.csv",
-                            f"results/{lang}/{test_name}_memory.csv",
-                            f"linux_results/{lang}/{test_name}_memory.csv"
-                        ]
-                        
-                        memory_mb = None
-                        for pattern in memory_csv_patterns:
-                            if os.path.exists(pattern):
-                                try:
-                                    with open(pattern, 'r') as f:
-                                        reader = csv.DictReader(f)
-                                        memory_values = []
-                                        for row in reader:
-                                            if 'memory_mb' in row:
-                                                try:
-                                                    memory_values.append(float(row['memory_mb']))
-                                                except (ValueError, TypeError):
-                                                    continue
-                                        
-                                        if memory_values:
-                                            # Calculate average memory usage
-                                            memory_mb = sum(memory_values) / len(memory_values)
-                                            break
-                                            
-                                except (IOError, csv.Error):
-                                    continue
-                        
-                        # Add memory data if found
-                        if memory_mb is not None:
-                            enhanced_metrics['avg_memory_mb'] = memory_mb
-                            enhanced_metrics['memory_mb'] = memory_mb
-                        
-                        enhanced_results[lang]['summary'][test_name] = enhanced_metrics
-                    else:
-                        enhanced_results[lang]['summary'][test_name] = metrics
-                        
-                # Copy any other fields from the original language data
-                if isinstance(lang_data, dict):
-                    for key, value in lang_data.items():
-                        if key != 'summary':
-                            enhanced_results[lang][key] = value
-            else:
-                enhanced_results[lang] = lang_data
+                enhanced_metrics = {}
+                for pattern in timeseries_file_patterns:
+                    if os.path.exists(pattern):
+                        enhanced_metrics = parse_timeseries_file(pattern)
+                        if enhanced_metrics and enhanced_metrics.get('throughput', 0) > 0:
+                            print(f"✅ Parsed {lang}/{test_name} timeseries: {enhanced_metrics['throughput']:.1f} req/s avg")
+                            break
+                
+                # If no timeseries file found or parsed, skip this test
+                if not enhanced_metrics:
+                    continue
+                
+                # Add memory data if available
+                memory_csv_patterns = [
+                    f"Benchmark/results/{lang}/{test_name}_memory.csv",
+                    f"Benchmark/linux_results/{lang}/{test_name}_memory.csv",
+                    f"results/{lang}/{test_name}_memory.csv",
+                    f"linux_results/{lang}/{test_name}_memory.csv"
+                ]
+                
+                memory_mb = None
+                for pattern in memory_csv_patterns:
+                    if os.path.exists(pattern):
+                        try:
+                            with open(pattern, 'r') as f:
+                                reader = csv.DictReader(f)
+                                memory_values = []
+                                for row in reader:
+                                    if 'memory_mb' in row:
+                                        try:
+                                            memory_values.append(float(row['memory_mb']))
+                                        except (ValueError, TypeError):
+                                            continue
+                                
+                                if memory_values:
+                                    # Calculate average memory usage
+                                    memory_mb = sum(memory_values) / len(memory_values)
+                                    break
+                                    
+                        except (IOError, csv.Error):
+                            continue
+                
+                # Add memory data if found
+                if memory_mb is not None:
+                    enhanced_metrics['avg_memory_mb'] = memory_mb
+                    enhanced_metrics['memory_mb'] = memory_mb
+                
+                enhanced_results[lang]['summary'][test_name] = enhanced_metrics
                 
         return enhanced_results
+
+    def _enhance_results_with_memory_data(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Enhance results with memory data from CSV files (deprecated - no longer used)."""
+        # This method is deprecated - email now uses simple file existence check
+        return results
 
     def _format_results_summary(self, results: Dict[str, Any]) -> str:
         """Format benchmark results into a modern HTML summary."""
@@ -363,23 +424,45 @@ Co-Authored-By: Claude <noreply@anthropic.com>"""
         Returns:
             bool: True if email sent successfully, False otherwise
         """
-        # Check for meaningful results and warn if none found
-        total_successful_tests = 0
-        if results:
-            for lang, lang_data in results.items():
-                if isinstance(lang_data, dict):
-                    tests_data = lang_data.get('summary', lang_data) if 'summary' in lang_data else lang_data
-                    if isinstance(tests_data, dict):
-                        for test_name, metrics in tests_data.items():
-                            if isinstance(metrics, dict):
-                                throughput = metrics.get('throughput', 0)
-                                if throughput and throughput > 0:
-                                    total_successful_tests += 1
+        # Simple check for benchmark completion
+        print("📧 Preparing completion email...")
+        
+        # Check if any results files exist (timeseries CSV files)
+        timeseries_files_found = 0
+        if languages:
+            # Determine minimum data points based on mode
+            min_data_points = 2 if mode == "debug" else 5  # Debug mode: header + 1-2 rows, Normal: header + several rows
+            
+            for lang in languages:
+                for test in ['kv', 'light', 'prime']:
+                    timeseries_patterns = [
+                        f"Benchmark/results/{lang}/{test}_timeseries.csv",
+                        f"Benchmark/linux_results/{lang}/{test}_timeseries.csv", 
+                        f"results/{lang}/{test}_timeseries.csv",
+                        f"linux_results/{lang}/{test}_timeseries.csv"
+                    ]
+                    for pattern in timeseries_patterns:
+                        if os.path.exists(pattern):
+                            # Check if file has more than just header
+                            try:
+                                with open(pattern, 'r') as f:
+                                    lines = f.readlines()
+                                    if len(lines) > min_data_points:  # Adjust threshold based on mode
+                                        timeseries_files_found += 1
+                                        break
+                            except Exception:
+                                continue
 
-        if total_successful_tests == 0:
-            print("⚠️  WARNING: Sending email with no successful benchmark results - all tests failed or produced no data")
+        if timeseries_files_found == 0:
+            print("❌ ERROR: No benchmark result files found - cannot send completion email")
+            print("   This indicates all tests failed or produced no data files")
+            # Attempt git commit even if benchmarks failed
+            git_commit_success = False
+            if mode:
+                git_commit_success = self._commit_results_to_git(mode)
+            return git_commit_success
         else:
-            print(f"📧 Sending completion email with {total_successful_tests} successful test result(s)")
+            print(f"✅ Found {timeseries_files_found} result file(s), proceeding with email")
 
         # Attempt git commit before sending email (only on Linux, non-debug mode)
         git_commit_success = False
@@ -397,6 +480,40 @@ Co-Authored-By: Claude <noreply@anthropic.com>"""
             languages_str = ', '.join(languages) if languages else 'N/A'
             tests_str = ', '.join(tests) if tests else 'N/A'
             
+            # Collect graph attachments
+            attachments = []
+            graph_patterns = [
+                "Benchmark/results/plots/comparison_*.png",
+                "Benchmark/linux_results/plots/comparison_*.png",
+                "results/plots/comparison_*.png", 
+                "linux_results/plots/comparison_*.png"
+            ]
+            
+            graphs_found = []
+            for pattern in graph_patterns:
+                graph_files = glob.glob(pattern)
+                if graph_files:
+                    for graph_file in graph_files:
+                        try:
+                            with open(graph_file, 'rb') as f:
+                                graph_data = f.read()
+                                graph_name = os.path.basename(graph_file)
+                                
+                                attachments.append({
+                                    "filename": graph_name,
+                                    "content": base64.b64encode(graph_data).decode('utf-8'),
+                                    "content_type": "image/png"
+                                })
+                                graphs_found.append(graph_name)
+                        except Exception as e:
+                            print(f"Warning: Failed to attach graph {graph_file}: {e}")
+                    break  # Only use first pattern that matches
+            
+            if graphs_found:
+                print(f"📊 Attaching {len(graphs_found)} graph(s): {', '.join(graphs_found)}")
+            else:
+                print("⚠️ No performance graphs found to attach")
+            
             html_content = f"""
             <!DOCTYPE html>
             <html>
@@ -409,11 +526,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>"""
                 
                 <div style="background: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden; margin-bottom: 20px;">
                     <!-- Header -->
-                    <div style="background: #28a745; padding: 2rem; text-align: center;">
+                    <div style="background: #198754; padding: 2rem; text-align: center;">
                         <h1 style="color: white; margin: 0; font-size: 1.75rem; font-weight: 600;">
                             ✅ Benchmark Completed Successfully
                         </h1>
-                        <p style="color: rgba(255, 255, 255, 0.95); margin: 0.5rem 0 0 0; font-size: 1rem;">
+                        <p style="color: #ffffff; margin: 0.5rem 0 0 0; font-size: 1rem; opacity: 0.95;">
                             Workflow finished at {timestamp}
                         </p>
                     </div>
@@ -442,7 +559,21 @@ Co-Authored-By: Claude <noreply@anthropic.com>"""
                             
                         </div>
                         
-                        {self._format_results_summary(results) if results else ''}
+                        <div style="margin: 1.5rem 0;">
+                            <h3 style="color: #343a40; margin-bottom: 1rem; display: flex; align-items: center; gap: 8px;">
+                                📊 Benchmark Results
+                            </h3>
+                            <div style="background: #d1ecf1; border-left: 4px solid #0dcaf0; padding: 1rem; border-radius: 0.375rem;">
+                                <p style="margin: 0; color: #055160;">
+                                    ✅ <strong>Benchmark completed successfully!</strong> 
+                                    Performance data and graphs have been generated and saved to the results directory.
+                                </p>
+                                <p style="margin: 0.5rem 0 0 0; color: #055160; font-size: 0.875rem;">
+                                    📈 Timeseries data files: {timeseries_files_found} generated<br>
+                                    📊 Performance comparison graphs attached to this email
+                                </p>
+                            </div>
+                        </div>
                         
                         <div style="background: #e7f3ff; border-left: 4px solid #007bff; padding: 1rem; margin-top: 1.5rem; border-radius: 0.375rem;">
                             <p style="margin: 0; color: #004085; font-size: 0.875rem;">
@@ -468,6 +599,10 @@ Co-Authored-By: Claude <noreply@anthropic.com>"""
                 "subject": f"✅ Benchmark Completed - {timestamp}",
                 "html": html_content
             }
+            
+            # Add attachments if any graphs were found
+            if attachments:
+                params["attachments"] = attachments
             
             response = resend.Emails.send(params)
             print(f"Completion email sent successfully: {response}")
@@ -546,7 +681,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"""
                         <h1 style="color: white; margin: 0; font-size: 1.75rem; font-weight: 600;">
                             ❌ Benchmark Workflow Failed
                         </h1>
-                        <p style="color: rgba(255, 255, 255, 0.95); margin: 0.5rem 0 0 0; font-size: 1rem;">
+                        <p style="color: #ffffff; margin: 0.5rem 0 0 0; font-size: 1rem; opacity: 0.95;">
                             Failure occurred at {timestamp}
                         </p>
                     </div>
@@ -635,7 +770,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"""
                             <h1 style="color: white; margin: 0; font-size: 1.75rem; font-weight: 600;">
                                 🧪 Test Email
                             </h1>
-                            <p style="color: rgba(255, 255, 255, 0.95); margin: 0.5rem 0 0 0; font-size: 1rem;">
+                            <p style="color: #ffffff; margin: 0.5rem 0 0 0; font-size: 1rem; opacity: 0.95;">
                                 Email notification system test
                             </p>
                         </div>

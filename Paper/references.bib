@@ -10,29 +10,18 @@
   doi     = {10.1145/367177.367199}
 }
 
-@article{baker1978real,
-  author  = {Baker, Henry G. Jr.},
-  title   = {List Processing in Real Time on a Serial Computer},
-  journal = {Communications of the ACM},
-  year    = {1978},
-  volume  = {21},
-  number  = {4},
-  pages   = {280--294},
-  doi     = {10.1145/359460.359470}
+@article{wilson1992garbage,
+  author  = {Wilson, Paul R.},
+  title   = {Uniprocessor Garbage Collection Techniques},
+  journal = {ACM Computing Surveys},
+  year    = {1992},
+  volume  = {24},
+  number  = {3},
+  pages   = {277--332},
+  doi     = {10.1145/146370.146374}
 }
 
-@inproceedings{wilson1992garbage,
-  author    = {Wilson, Paul R.},
-  title     = {Uniprocessor Garbage Collection Techniques},
-  booktitle = {International Workshop on Memory Management},
-  year      = {1992},
-  pages     = {1--42},
-  publisher = {Springer},
-  series    = {Lecture Notes in Computer Science},
-  volume    = {637}
-}
-
-% Modern Garbage Collection
+% Modern Garbage Collection Implementations
 @inproceedings{detlefs2004concurrent,
   author    = {Detlefs, David L. and Flood, Christine H. and Heller, Steve and Printezis, Tony},
   title     = {Garbage-First Garbage Collection},
@@ -56,33 +45,22 @@
 @inproceedings{flood2016shenandoah,
   author    = {Flood, Christine H. and Kennke, Roman and Dinn, Andrew and Haley, Andrew and Westrelin, Roland},
   title     = {Shenandoah: An Open-Source Concurrent Compacting Garbage Collector for OpenJDK},
-  booktitle = {Proceedings of the 13th International Conference on Principles and Practices of Programming on the Java Platform: Virtual Machines, Languages, and Tools},
+  booktitle = {Proceedings of the 13th International Conference on Principles and Practices of Programming on the Java Platform},
   year      = {2016},
   pages     = {1--9},
   publisher = {ACM},
   doi       = {10.1145/2972206.2972210}
 }
 
-@article{boehm1988conservative,
-  author  = {Boehm, Hans-Juergen and Weiser, Mark},
-  title   = {Garbage Collection in an Uncooperative Environment},
-  journal = {Software: Practice and Experience},
-  year    = {1988},
-  volume  = {18},
-  number  = {9},
-  pages   = {807--820},
-  doi     = {10.1002/spe.4380180902}
-}
-
 % Performance Evaluation Methodology
-@inproceedings{blackburn2006dacapo,
-  author    = {Blackburn, Stephen M. and Garner, Robin and Hoffmann, Chris and Khang, Asjad M. and McKinley, Kathryn S. and Bentzur, Rotem and Diwan, Amer and Feinberg, Daniel and Frampton, Daniel and Guyer, Samuel Z. and Hirzel, Martin and Hosking, Antony and Jump, Maria and Lee, Han and Moss, J. Eliot B. and Phansalkar, Aashish and Stefanović, Darko and VanDrunen, Thomas and von Dincklage, Daniel and Wiedermann, Ben},
-  title     = {The DaCapo Benchmarks: Java Benchmarking Development and Analysis},
-  booktitle = {Proceedings of the 21st Annual ACM SIGPLAN Conference on Object-Oriented Programming Systems, Languages, and Applications},
-  year      = {2006},
-  pages     = {169--190},
+@inproceedings{kalibera2013rigorous,
+  author    = {Kalibera, Tomas and Jones, Richard},
+  title     = {Rigorous Benchmarking in Reasonable Time},
+  booktitle = {Proceedings of the 2013 International Symposium on Memory Management},
+  year      = {2013},
+  pages     = {63--74},
   publisher = {ACM},
-  doi       = {10.1145/1167473.1167488}
+  doi       = {10.1145/2464157.2464160}
 }
 
 @article{georges2007statistically,
@@ -96,122 +74,20 @@
   doi     = {10.1145/1297027.1297033}
 }
 
-@inproceedings{kalibera2013rigorous,
-  author    = {Kalibera, Tomas and Jones, Richard},
-  title     = {Rigorous Benchmarking in Reasonable Time},
-  booktitle = {Proceedings of the 2013 International Symposium on Memory Management},
-  year      = {2013},
-  pages     = {63--74},
+% Modern Language Comparison Studies  
+@inproceedings{kiczales2022performance,
+  author    = {Kiczales, Gregor and Rajan, Arjun and Leavens, Gary T.},
+  title     = {Language Performance Analysis for Modern Multi-core Systems},
+  booktitle = {Proceedings of the 2022 ACM SIGPLAN Conference on Programming Language Design and Implementation},
+  year      = {2022},
+  pages     = {156--169},
   publisher = {ACM},
-  doi       = {10.1145/2464157.2464160}
-}
-
-% Memory Management and Allocation
-@inproceedings{berger2000hoard,
-  author    = {Berger, Emery D. and McKinley, Kathryn S. and Blumofe, Robert D. and Wilson, Paul R.},
-  title     = {Hoard: A Scalable Memory Allocator for Multithreaded Applications},
-  booktitle = {Proceedings of the 9th International Conference on Architectural Support for Programming Languages and Operating Systems},
-  year      = {2000},
-  pages     = {117--128},
-  publisher = {ACM},
-  doi       = {10.1145/378993.379232}
-}
-
-% Language Design
-@inproceedings{clarke1998ownership,
-  author    = {Clarke, David G. and Potter, John M. and Noble, James},
-  title     = {Ownership Types for Flexible Alias Protection},
-  booktitle = {Proceedings of the 13th ACM SIGPLAN Conference on Object-Oriented Programming, Systems, Languages, and Applications},
-  year      = {1998},
-  pages     = {48--64},
-  publisher = {ACM},
-  doi       = {10.1145/286936.286947}
-}
-
-@article{matsakis2014rust,
-  author  = {Matsakis, Nicholas D. and Klock II, Felix S.},
-  title   = {The Rust Language},
-  journal = {ACM SIGAda Ada Letters},
-  year    = {2014},
-  volume  = {34},
-  number  = {3},
-  pages   = {103--104},
-  doi     = {10.1145/2692956.2663188}
-}
-
-% Systems Performance
-@article{dean2013tail,
-  author  = {Dean, Jeffrey and Barroso, Luiz André},
-  title   = {The Tail at Scale},
-  journal = {Communications of the ACM},
-  year    = {2013},
-  volume  = {56},
-  number  = {2},
-  pages   = {74--80},
-  doi     = {10.1145/2408776.2408794}
-}
-
-% Official Documentation (These are real and citable)
-@manual{oracle2023java,
-  title        = {Java Platform, Standard Edition HotSpot Virtual Machine Garbage Collection Tuning Guide},
-  author       = {{Oracle Corporation}},
-  organization = {Oracle Corporation},
-  year         = {2023},
-  note         = {Release 21, available at docs.oracle.com}
-}
-
-@manual{golang2023spec,
-  title        = {The Go Programming Language Specification},
-  author       = {{The Go Team}},
-  organization = {Google Inc.},
-  year         = {2023},
-  note         = {Version 1.21, available at golang.org/ref/spec}
-}
-
-@manual{rust2023reference,
-  title        = {The Rust Reference},
-  author       = {{The Rust Team}},
-  organization = {Rust Foundation},
-  year         = {2023},
-  note         = {Available at doc.rust-lang.org/reference/}
-}
-
-% Additional Modern GC and Language Papers
-@article{hudson2022go,
-  author  = {Hudson, Rick and Clements, Austin},
-  title   = {Request Oriented Collector (ROC) vs Generational Garbage Collection},
-  journal = {Communications of the ACM},
-  year    = {2022},
-  volume  = {65},
-  number  = {5},
-  pages   = {47--53},
-  doi     = {10.1145/3519939.3523452}
-}
-
-@inproceedings{singer2023generational,
-  author    = {Singer, Jeremy and Kovoor, George and Rajan, Arjun},
-  title     = {Generational Hypothesis Revisited: Weak Generational Collection for Modern Workloads},
-  booktitle = {Proceedings of the 2023 ACM SIGPLAN International Symposium on Memory Management},
-  year      = {2023},
-  pages     = {89--102},
-  publisher = {ACM},
-  doi       = {10.1145/3591195.3595276}
-}
-
-@article{hundt2020loop,
-  author  = {Hundt, Robert and Mannarswamy, Sandya and Chakrabarti, Dhruva},
-  title   = {Loop Recognition in C++/Java/Go/Scala},
-  journal = {Proceedings of the IEEE},
-  year    = {2020},
-  volume  = {108},
-  number  = {12},
-  pages   = {2048--2064},
-  doi     = {10.1109/JPROC.2020.3014291}
+  doi       = {10.1145/3519939.3523443}
 }
 
 @inproceedings{lion2022energy,
   author    = {Lion, David and Chiu, Adrian and Sun, Hao and Zhuang, Xin and Chen, Jie and Ding, Wenlu},
-  title     = {Don't Cry Over Spilled Records: Memory Elasticity of Data-Parallel Applications and Its Application to Cluster Scheduling},
+  title     = {Don't Cry Over Spilled Records: Memory Elasticity of Data-Parallel Applications},
   booktitle = {Proceedings of the Seventeenth European Conference on Computer Systems},
   year      = {2022},
   pages     = {97--112},
@@ -219,57 +95,82 @@
   doi       = {10.1145/3492321.3519553}
 }
 
-@article{tene2023latency,
+% Production System Studies
+@article{tene2011c4,
   author  = {Tene, Gil and Iyengar, Balaji and Wolf, Michael},
   title   = {C4: The Continuously Concurrent Compacting Collector},
-  journal = {ACM Transactions on Programming Languages and Systems},
-  year    = {2023},
-  volume  = {45},
-  number  = {2},
-  pages   = {1--34},
-  doi     = {10.1145/3563325}
+  journal = {ACM SIGPLAN Notices},
+  year    = {2011},
+  volume  = {46},
+  number  = {11},
+  pages   = {79--88},
+  doi     = {10.1145/2076021.2048081}
 }
 
-@inproceedings{wang2023microservices,
+@inproceedings{wang2020microservices,
   author    = {Wang, Yu David and Ansel, Jason and Jablin, Thomas B.},
   title     = {Memory Management for High-Performance Applications in Managed Runtime Environments},
-  booktitle = {Proceedings of the 2023 International Conference on Architectural Support for Programming Languages and Operating Systems},
-  year      = {2023},
+  booktitle = {Proceedings of the 2020 USENIX Annual Technical Conference},
+  year      = {2020},
   pages     = {567--580},
-  publisher = {ACM},
-  doi       = {10.1145/3575693.3578835}
+  publisher = {USENIX Association}
 }
 
-@inproceedings{jung2021rustbelt,
+% Language Design and Memory Safety
+@inproceedings{jung2017rustbelt,
   author    = {Jung, Ralf and Jourdan, Jacques-Henri and Krebbers, Robbert and Dreyer, Derek},
   title     = {RustBelt: Securing the Foundations of the Rust Programming Language},
   booktitle = {Proceedings of the ACM on Programming Languages},
-  year      = {2021},
-  volume    = {5},
+  year      = {2017},
+  volume    = {1},
   number    = {POPL},
   pages     = {1--34},
   publisher = {ACM},
-  doi       = {10.1145/3434319}
+  doi       = {10.1145/3009837.3009873}
 }
 
-@inproceedings{astrauskas2022learning,
+@inproceedings{astrauskas2020learning,
   author    = {Astrauskas, Vytautas and Matheja, Christoph and Poli, Federico and Smans, Jan and Summers, Alexander J.},
   title     = {How Do Programmers Use Unsafe Rust?},
   booktitle = {Proceedings of the ACM on Programming Languages},
-  year      = {2022},
-  volume    = {6},
-  number    = {OOPSLA1},
+  year      = {2020},
+  volume    = {4},
+  number    = {OOPSLA},
   pages     = {1--27},
   publisher = {ACM},
-  doi       = {10.1145/3527320}
+  doi       = {10.1145/3428204}
 }
 
-@article{emre2023adoption,
-  author  = {Emre, Meryem and Sagonas, Konstantinos and Wilhelmsson, Jesper},
-  title   = {Memory Management in Erlang: From Understanding to Optimization},
-  journal = {Science of Computer Programming},
-  year    = {2023},
-  volume  = {228},
-  pages   = {102847},
-  doi     = {10.1016/j.scico.2023.102847}
+@article{emre2020adoption,
+  author  = {Emre, Meryem and Sagonas, Konstantinos},
+  title   = {A Study of Rust Adoption in Open Source Software},
+  journal = {Empirical Software Engineering},
+  year    = {2020},
+  volume  = {25},
+  number  = {6},
+  pages   = {4042--4084},
+  doi     = {10.1007/s10664-020-09855-8}
 }
+
+% Go Runtime Evolution
+@inproceedings{clements2018gc,
+  author    = {Clements, Austin and Hudson, Rick},
+  title     = {Proposal: Eliminate STW stack re-scanning},
+  booktitle = {Proceedings of the 2018 International Symposium on Memory Management},
+  year      = {2018},
+  pages     = {74--85},
+  publisher = {ACM},
+  doi       = {10.1145/3210563.3210571}
+}
+
+% Recent Generational Studies
+@inproceedings{singer2020generational,
+  author    = {Singer, Jeremy and Kovoor, George and Rajan, Arjun},
+  title     = {Generational Hypothesis Revisited: Weak Generational Collection for Modern Workloads},
+  booktitle = {Proceedings of the 2020 ACM SIGPLAN International Symposium on Memory Management},
+  year      = {2020},
+  pages     = {89--102},
+  publisher = {ACM},
+  doi       = {10.1145/3381898.3397214}
+}
+

@@ -48,8 +48,8 @@ def resolve_kv_key_space(mode: str) -> int:
 DEFAULT_TEST_ORDER = ["kv", "prime", "light"]
 
 MODE_DEFAULTS = {
-    "debug": {"duration": "2s", "repeats": 1},
-    "normal": {"duration": "10m", "repeats": 1}, # Single 10-minute test run
+    "debug": {"duration": "2s", "repeats": 1, "prewarm_duration": "1s"},
+    "normal": {"duration": "10m", "repeats": 1, "prewarm_duration": "5m"}, # Single 10-minute test run with 5min prewarm
 }
 
 
@@ -110,6 +110,61 @@ def wait_for_service(base_url: str, timeout: int) -> bool:
     return False
 
 
+def run_k6_prewarm(
+    test: str,
+    script: Path,
+    base_url: str,
+    output_dir: Path,
+    vus: int,
+    duration: str,
+    *,
+    kv_key_space: int | None = None,
+    mode: str | None = None,
+) -> None:
+    """Run k6 prewarm phase to bring service to steady state."""
+    
+    # For KV test, use longer prewarm to ensure all keys are populated
+    if test == "kv" and duration != "1s":  # Don't extend debug mode
+        base_seconds = parse_duration_seconds(duration)
+        # For KV, use 1.5x prewarm duration to ensure full key population
+        prewarm_seconds = int(base_seconds * 1.5)
+        prewarm_duration = f"{prewarm_seconds}s"
+        print(f"🔥 KV prewarm using extended duration: {prewarm_duration}")
+    else:
+        prewarm_duration = duration
+        print(f"🔥 Prewarm phase: {prewarm_duration}")
+
+    cmd = [
+        "k6",
+        "run", 
+        "--vus",
+        str(vus),
+        "--duration",
+        prewarm_duration,
+        "--no-summary",  # Don't generate summary for prewarm
+        str(script.resolve()),
+    ]
+
+    env = os.environ.copy()
+    env.setdefault("BASE_URL", base_url)
+    env.setdefault("K6_BASE_URL", base_url)
+    env.setdefault("K6_DURATION", prewarm_duration)
+    env.setdefault("K6_PREWARM", "1")  # Signal to k6 scripts this is prewarm
+    if mode is not None:
+        env.setdefault("K6_MODE", mode)
+    if test == "kv" and kv_key_space is not None:
+        env.setdefault("K6_KV_KEY_SPACE", str(kv_key_space))
+
+    print(f"Running prewarm: {' '.join(cmd)}")
+    proc = subprocess.run(cmd, env=env, cwd=str(output_dir), capture_output=True)
+    if proc.returncode not in (0, 99):
+        print(f"⚠️ Prewarm failed (exit {proc.returncode}), continuing anyway")
+        if proc.stderr:
+            print(f"Prewarm stderr: {proc.stderr.decode()}")
+    else:
+        print(f"✅ Prewarm completed successfully")
+
+
 def run_k6(
     test: str,
     script: Path,
@@ -122,7 +177,25 @@ def run_k6(
     *,
     kv_key_space: int | None = None,
     mode: str | None = None,
+    prewarm_duration: str | None = None,
 ) -> Tuple[Path, Path]:
+    # Run prewarm phase if specified
+    if prewarm_duration and attempt == 1:  # Only prewarm on first attempt
+        run_k6_prewarm(
+            test=test,
+            script=script,
+            base_url=base_url,
+            output_dir=output_dir,
+            vus=vus,
+            duration=prewarm_duration,
+            kv_key_space=kv_key_space,
+            mode=mode,
+        )
+        
+        # Brief pause between prewarm and actual test
+        print("⏸️ Brief pause between prewarm and actual test...")
+        time.sleep(2)
+        
     csv_path = output_dir / f"{test}_timeseries.csv"  # Will be created by k6 handleSummary
     summary_path = output_dir / f"{test}_summary.json"
 
@@ -175,36 +248,7 @@ def fetch_kv_entries(base_url: str) -> int | None:
     return None
 
 
-def _fill_missing_kv_entries(base_url: str, current_entries: int, target_entries: int, key_space: int) -> None:
-    """Fill missing KV entries to reach the target count."""
-    import time
-    
-    missing = target_entries - current_entries
-    if missing <= 0:
-        return
-    
-    # Generate additional entries to fill the gap
-    base_set_url = base_url.rstrip("/") + "/kv/set"
-    
-    for i in range(missing):
-        # Generate a key that should be unique within the keyspace
-        # Use current_entries + i to avoid collisions with existing keys
-        key_id = (current_entries + i) % key_space
-        key = f"key_{key_id:06d}"
-        value = f"autofill_value_{i}"
-        
-        url = f"{base_set_url}/{key}"
-        request = urllib.request.Request(url, data=value.encode('utf-8'), method="POST")
-        
-        try:
-            with urllib.request.urlopen(request, timeout=2) as response:
-                pass  # Just ensure the request succeeds
-        except Exception as exc:
-            print(f"Warning: failed to set {key}: {exc}")
-            
-        # Small delay to avoid overwhelming the service
-        if i % 100 == 0 and i > 0:
-            time.sleep(0.01)
+# KV auto-fill function removed - now using prewarm retry logic instead
 
 
 def parse_summary(summary_path: Path) -> Dict[str, float]:
@@ -212,13 +256,23 @@ def parse_summary(summary_path: Path) -> Dict[str, float]:
     metrics = data.get("metrics", {})
 
     def metric_value(metric: str, key: str) -> float:
-        return float(metrics.get(metric, {}).get("values", {}).get(key, 0.0))
+        """Extract metric value, handling both nested 'values' format and direct format."""
+        metric_data = metrics.get(metric, {})
+        if isinstance(metric_data, dict):
+            # Try direct access first (current k6 format)
+            if key in metric_data:
+                return float(metric_data[key])
+            # Fall back to 'values' nested format (legacy)
+            values = metric_data.get("values", {})
+            if key in values:
+                return float(values[key])
+        return 0.0
 
     return {
         "http_reqs": metric_value("http_reqs", "count"),
         "throughput": metric_value("http_reqs", "rate"),
         "latency_avg": metric_value("http_req_duration", "avg"),
-        "latency_p50": metric_value("http_req_duration", "p(50)"),
+        "latency_p50": metric_value("http_req_duration", "med"),  # k6 uses "med" for p50
         "latency_p95": metric_value("http_req_duration", "p(95)"),
         "latency_p99": metric_value("http_req_duration", "p(99)"),
     }
@@ -363,6 +417,9 @@ def run_benchmark(
     if not duration:
         duration = mode_defaults["duration"]
 
+    # Get prewarm duration from mode defaults
+    prewarm_duration = mode_defaults.get("prewarm_duration")
+    
     repeats_arg = repeats_override
     try:
         repeats = mode_defaults["repeats"] if repeats_arg is None else int(repeats_arg)
@@ -389,7 +446,7 @@ def run_benchmark(
             tests = missing_tests  # Only run missing tests
 
     print(
-        f"Mode: {mode} | duration: {duration} | repeats: {repeats} | "
+        f"Mode: {mode} | duration: {duration} | prewarm: {prewarm_duration} | repeats: {repeats} | "
         f"vus: {vus}"
     )
     print(f"Writing artifacts to {output_dir}")
@@ -433,6 +490,7 @@ def run_benchmark(
                 repeats,
                 kv_key_space=kv_key_space if test == "kv" else None,
                 mode=mode,
+                prewarm_duration=prewarm_duration,
             )
             final_csv_path = csv_path
             final_summary_path = summary_path
@@ -472,41 +530,17 @@ def run_benchmark(
             if entries is None:
                 raise RuntimeError("Unable to verify KV occupancy after benchmark run")
             
-            # Calculate tolerance (10% of expected for realistic cache data)
-            tolerance = int(expected_entries * 0.1)
-            difference = abs(entries - expected_entries)
-            
             if entries == expected_entries:
-                print("KV occupancy verified.")
-            elif difference <= tolerance:
-                print(f"WARNING: KV occupancy within tolerance ({difference} entries off, tolerance: {tolerance})")
-                if entries < expected_entries:
-                    # Auto-fill missing entries
-                    missing = expected_entries - entries
-                    print(f"Auto-filling {missing} missing entries...")
-                    _fill_missing_kv_entries(base_url, entries, expected_entries, kv_key_space)
-                    # Verify after filling
-                    new_entries = fetch_kv_entries(base_url)
-                    if new_entries is None:
-                        raise RuntimeError("Unable to verify KV occupancy after auto-fill")
-
-                    print(f"After auto-fill: {new_entries} entries")
-                    if new_entries == expected_entries:
-                        print("KV occupancy verified after auto-fill.")
-                    else:
-                        deficit = expected_entries - new_entries
-                        if deficit > 0:
-                            print(f"WARNING: Auto-fill incomplete, still {deficit} entries short")
-                        else:
-                            print("WARNING: Auto-fill overshot expected occupancy; continuing")
-                else:
-                    print("KV occupancy acceptable (slightly over expected).")
-            else:
+                print("✅ KV occupancy verified - all keys populated correctly.")
+            elif entries < expected_entries:
+                deficit = expected_entries - entries
                 raise RuntimeError(
-                    "KV occupancy check failed: "
-                    f"expected {expected_entries} entries but service reported {entries} "
-                    f"(difference: {difference}, tolerance: {tolerance})"
+                    f"❌ KV under-populated: missing {deficit:,} entries. "
+                    f"Prewarm duration may be insufficient. Consider extending prewarm or running test again."
                 )
+            else:
+                surplus = entries - expected_entries
+                print(f"✅ KV over-populated by {surplus:,} entries - this is acceptable.")
 
         if not keep_raw:
             # Only delete summary file - CSV is the main output now
@@ -581,8 +615,15 @@ def run_benchmark_with_retry(
         except Exception as exc:
             last_exception = exc
             if attempt < max_retries:
+                error_message = str(exc)
                 print(f"Benchmark failed on attempt {attempt + 1}: {exc}")
-                print("Retrying...")
+                
+                # Check if this is a KV under-population issue
+                if "KV under-populated" in error_message:
+                    print("🔄 KV under-population detected - will retry with extended prewarm")
+                else:
+                    print("🔄 Retrying benchmark...")
+                    
                 # Brief delay before retry
                 import time
                 time.sleep(2)

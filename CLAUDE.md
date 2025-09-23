@@ -30,7 +30,7 @@ The main component is a comprehensive benchmarking system that compares HTTP ser
 Located in `Benchmark/k6/`:
 - `prime.js`: CPU-intensive prime number calculations
 - `light.js`: Lightweight request handling
-- `kv.js`: Key-value store operations
+- `kv.js`: Key-value store operations with prewarm phase
 
 ## Development Commands
 
@@ -110,6 +110,18 @@ Python requirements are in `Benchmark/requirements.txt`:
 - pandas==2.0.3
 - resend==2.14.0
 
+### Test Execution Modes
+
+**Debug Mode (for development)**:
+- Test duration: 2 seconds
+- Prewarm duration: 1 second  
+- KV prewarm duration: 1 second (no extension in debug mode)
+
+**Normal Mode (for research)**:
+- Test duration: 10 minutes
+- Prewarm duration: 5 minutes
+- KV prewarm duration: 7.5 minutes (1.5x extension to ensure full key population)
+
 ### GC Tracing
 GC tracing is **enabled by default** for research purposes:
 - Go: `GODEBUG=gctrace=1`
@@ -117,11 +129,34 @@ GC tracing is **enabled by default** for research purposes:
 
 Use `--disable-gc-trace` to disable when not needed for research.
 
+### Benchmark Methodology Evolution
+
+#### KV Test Challenge & Solutions
+The KV (key-value) test presented unique challenges for fair cross-language comparison:
+
+**Phase 1: Direct KV Insertion**
+- Initial approach: Let each language insert keys during the test
+- Problem: Different language throughput capabilities led to different numbers of keys inserted
+- Result: Unfair comparisons as high-throughput languages populated more keys, affecting memory usage patterns
+
+**Phase 2: Tolerance-Based Auto-Fill**
+- Solution: 10% tolerance window with automatic key insertion to reach target population
+- Implementation: Post-test verification and programmatic filling of missing entries  
+- Problem: Complex logic, inconsistent behavior, and artificial key insertion affecting memory patterns
+
+**Phase 3: Prewarm-Based Population (Current)**
+- Solution: Dedicated prewarm phase before actual measurement
+- KV tests use extended prewarm (1.5x normal duration) to ensure complete key population
+- Actual test measurement only captures steady-state performance
+- Result: Fair comparison with all languages starting from identical key population states
+
+This evolution demonstrates systematic problem-solving in benchmark design, ensuring measurement validity while maintaining cross-language fairness. The progression from problem identification through iterative solutions showcases engineering methodology applicable to IBDP Extended Essay analysis.
+
 ### Results Structure
 Benchmark results are written to `Benchmark/results/<language>/<timestamp>/`:
 - `results.json`: Summary metrics and metadata
-- `<test>_timeseries.csv`: Per-second RPS and latency percentiles
-- `<test>_memory.csv`: RSS memory usage over time
+- `<test>_timeseries.csv`: Per-second RPS and latency percentiles (excluding prewarm phase)
+- `<test>_memory.csv`: RSS memory usage over time (excluding prewarm phase)
 - Raw k6 outputs (if `--keep-raw` is specified)
 
 ## Prerequisites
