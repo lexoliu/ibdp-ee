@@ -44,22 +44,22 @@ def test_completion_email():
     sample_results = {
         "java": {
             "prime": {
-                "avg_latency": 45.2,
-                "p99_latency": 89.5,
+                "latency_p50": 45.2,
+                "latency_p99": 89.5,
                 "throughput": 1250.3,
                 "avg_memory_mb": 512.8
             },
             "light": {
-                "avg_latency": 12.1,
-                "p99_latency": 25.4,
+                "latency_p50": 12.1,
+                "latency_p99": 25.4,
                 "throughput": 2100.7,
                 "avg_memory_mb": 485.2
             }
         },
         "go": {
             "prime": {
-                "avg_latency": 38.7,
-                "p99_latency": 72.1,
+                "latency_p50": 38.7,
+                "latency_p99": 72.1,
                 "throughput": 1480.5,
                 "avg_memory_mb": 128.4
             }

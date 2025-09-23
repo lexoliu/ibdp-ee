@@ -49,7 +49,7 @@ DEFAULT_TEST_ORDER = ["kv", "prime", "light"]
 
 MODE_DEFAULTS = {
     "debug": {"duration": "2s", "repeats": 1},
-    "normal": {"duration": "10m", "repeats": 2}, # One prewarm, one measured
+    "normal": {"duration": "10m", "repeats": 1}, # Single 10-minute test run
 }
 
 
@@ -64,7 +64,7 @@ def parse_args() -> argparse.Namespace:
         help="Subset of tests to run",
     )
     parser.add_argument("--base-url", default=os.environ.get("BASE_URL", "http://127.0.0.1:8080"))
-    parser.add_argument("--mode", choices=MODE_DEFAULTS.keys(), default=os.environ.get("MODE", "normal"), help="Select run mode: debug=2s smoke, normal=5m stress")
+    parser.add_argument("--mode", choices=MODE_DEFAULTS.keys(), default=os.environ.get("MODE", "normal"), help="Select run mode: debug=2s smoke, normal=10m test")
     parser.add_argument("--vus", type=int, default=int(os.environ.get("VUS", "64")))
     parser.add_argument(
         "--duration",
@@ -218,6 +218,7 @@ def parse_summary(summary_path: Path) -> Dict[str, float]:
         "http_reqs": metric_value("http_reqs", "count"),
         "throughput": metric_value("http_reqs", "rate"),
         "latency_avg": metric_value("http_req_duration", "avg"),
+        "latency_p50": metric_value("http_req_duration", "p(50)"),
         "latency_p95": metric_value("http_req_duration", "p(95)"),
         "latency_p99": metric_value("http_req_duration", "p(99)"),
     }
@@ -311,6 +312,7 @@ def run_benchmark(
     tests = tests or list(DEFAULT_TEST_ORDER)
     mode_defaults = MODE_DEFAULTS[mode]
 
+    # Get duration from override or mode defaults
     raw_duration = duration_override or mode_defaults["duration"]
     duration = raw_duration.strip()
     if not duration:
@@ -373,6 +375,8 @@ def run_benchmark(
             sampler = MemorySampler(memory_probe, interval=memory_interval)
             sampler.start()
         for attempt in range(1, repeats + 1):
+            print(f"Running attempt {attempt}/{repeats} with duration {duration}")
+            
             csv_path, summary_path = run_k6(
                 test,
                 script,

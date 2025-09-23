@@ -148,8 +148,9 @@ from notifications import EmailNotifier
 notifier = EmailNotifier()
 notifier.send_completion_email(
     duration=123.45,
-    results={"java": {"prime": {"avg_latency": 45.2}}},
+    results={"java": {"prime": {"latency_p50": 45.2, "throughput": 750.0}}},
     languages=["java"],
-    tests=["prime"]
+    tests=["prime"],
+    mode="normal"
 )
 ```

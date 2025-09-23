@@ -143,6 +143,7 @@ class EmailNotifier:
     def _format_results_summary(self, results: Dict[str, Any]) -> str:
         """Format benchmark results into a modern HTML summary."""
         if not results:
+            print("⚠️  WARNING: No benchmark results data available for email")
             return """
             <div style="background: #f8f9fa; border-left: 4px solid #6c757d; padding: 1rem; margin: 1rem 0; border-radius: 0.375rem;">
                 <p style="margin: 0; color: #6c757d;">📊 No detailed results available</p>
@@ -162,13 +163,13 @@ class EmailNotifier:
                 for test_name, metrics in tests_data.items():
                     if isinstance(metrics, dict):
                         # Map field names correctly
-                        avg_latency = metrics.get('latency_avg') or metrics.get('avg_latency')
+                        p50_latency = metrics.get('latency_p50') or metrics.get('p50_latency')
                         p99_latency = metrics.get('latency_p99') or metrics.get('p99_latency')
                         throughput = metrics.get('throughput')
                         memory = metrics.get('avg_memory_mb') or metrics.get('memory_mb')
                         
-                        # Determine if test has meaningful results
-                        has_results = any(v and v > 0 for v in [avg_latency, p99_latency, throughput])
+                        # Determine if test has meaningful results (throughput > 0 indicates successful test)
+                        has_results = throughput is not None and throughput > 0
                         
                         # Format row with conditional styling
                         row_class = "" if has_results else "opacity: 0.6;"
@@ -186,13 +187,13 @@ class EmailNotifier:
                                 <code style="background: #f8f9fa; padding: 2px 6px; border-radius: 3px; font-size: 0.875em;">{test_name}</code>
                             </td>
                             <td style="padding: 12px 16px; border-bottom: 1px solid #e9ecef; text-align: right; font-family: monospace;">
-                                {self._format_metric(avg_latency, show_zero=False) if avg_latency != 0 else '—'}
+                                {self._format_metric(p50_latency, 1) if has_results else '—'}
                             </td>
                             <td style="padding: 12px 16px; border-bottom: 1px solid #e9ecef; text-align: right; font-family: monospace;">
-                                {self._format_metric(p99_latency, show_zero=False) if p99_latency != 0 else '—'}
+                                {self._format_metric(p99_latency, 1) if has_results else '—'}
                             </td>
                             <td style="padding: 12px 16px; border-bottom: 1px solid #e9ecef; text-align: right; font-family: monospace;">
-                                {self._format_metric(throughput, 0, show_zero=False) if throughput != 0 else '—'}
+                                {self._format_metric(throughput, 0) if has_results else '—'}
                             </td>
                             <td style="padding: 12px 16px; border-bottom: 1px solid #e9ecef; text-align: right; font-family: monospace;">
                                 {self._format_metric(memory, 1, show_zero=False) if memory and memory != 0 else '—'}
@@ -201,6 +202,7 @@ class EmailNotifier:
                         """)
         
         if not table_rows:
+            print("⚠️  WARNING: No valid benchmark test results found - all tests appear to have failed")
             return """
             <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 1rem; margin: 1rem 0; border-radius: 0.375rem;">
                 <p style="margin: 0; color: #856404;">⚠️ No valid benchmark results found</p>
@@ -218,7 +220,7 @@ class EmailNotifier:
                         <tr style="background: #495057; color: white;">
                             <th style="padding: 16px; text-align: left; font-weight: 600; border-right: 1px solid rgba(255,255,255,0.1);">Language</th>
                             <th style="padding: 16px; text-align: left; font-weight: 600; border-right: 1px solid rgba(255,255,255,0.1);">Test Suite</th>
-                            <th style="padding: 16px; text-align: right; font-weight: 600; border-right: 1px solid rgba(255,255,255,0.1);">Avg Latency<br><small style="opacity: 0.9;">(ms)</small></th>
+                            <th style="padding: 16px; text-align: right; font-weight: 600; border-right: 1px solid rgba(255,255,255,0.1);">P50 Latency<br><small style="opacity: 0.9;">(ms)</small></th>
                             <th style="padding: 16px; text-align: right; font-weight: 600; border-right: 1px solid rgba(255,255,255,0.1);">P99 Latency<br><small style="opacity: 0.9;">(ms)</small></th>
                             <th style="padding: 16px; text-align: right; font-weight: 600; border-right: 1px solid rgba(255,255,255,0.1);">Throughput<br><small style="opacity: 0.9;">(req/s)</small></th>
                             <th style="padding: 16px; text-align: right; font-weight: 600;">Memory<br><small style="opacity: 0.9;">(MB)</small></th>
@@ -361,6 +363,24 @@ Co-Authored-By: Claude <noreply@anthropic.com>"""
         Returns:
             bool: True if email sent successfully, False otherwise
         """
+        # Check for meaningful results and warn if none found
+        total_successful_tests = 0
+        if results:
+            for lang, lang_data in results.items():
+                if isinstance(lang_data, dict):
+                    tests_data = lang_data.get('summary', lang_data) if 'summary' in lang_data else lang_data
+                    if isinstance(tests_data, dict):
+                        for test_name, metrics in tests_data.items():
+                            if isinstance(metrics, dict):
+                                throughput = metrics.get('throughput', 0)
+                                if throughput and throughput > 0:
+                                    total_successful_tests += 1
+
+        if total_successful_tests == 0:
+            print("⚠️  WARNING: Sending email with no successful benchmark results - all tests failed or produced no data")
+        else:
+            print(f"📧 Sending completion email with {total_successful_tests} successful test result(s)")
+
         # Attempt git commit before sending email (only on Linux, non-debug mode)
         git_commit_success = False
         if mode:
