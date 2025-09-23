@@ -393,7 +393,8 @@ def main() -> int:
             duration=total_duration,
             results=all_results,
             languages=args.languages,
-            tests=args.tests
+            tests=args.tests,
+            mode=args.mode
         )
 
         print("\nBenchmark workflow completed.")

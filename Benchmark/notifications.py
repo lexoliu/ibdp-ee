@@ -3,6 +3,11 @@
 import os
 import json
 import traceback
+import platform
+import subprocess
+import shutil
+import csv
+import glob
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import resend
@@ -17,12 +22,24 @@ class EmailNotifier:
         self.from_email = os.environ.get('RESEND_FROM_EMAIL', 'onboarding@resend.dev')
         self.to_emails = [email.strip() for email in os.environ.get('RESEND_TO_EMAILS', 'me@lexo.cool').split(',') if email.strip()]
         self.enabled = bool(self.api_key)
+        
+        # Git configuration
+        self.github_user = os.environ.get('GITHUB_USER_NAME')
+        self.github_token = os.environ.get('GITHUB_TOKEN')
+        self.git_enabled = bool(self.github_user and self.github_token)
 
         if self.enabled:
             resend.api_key = self.api_key
             print("Email notifications enabled automatically (RESEND_API_KEY detected). Recipients:", self.to_emails)
         else:
             print("Email notifications disabled: RESEND_API_KEY not set")
+            
+        if self.git_enabled and platform.system().lower() == 'linux':
+            print("Git commit functionality enabled for Linux environment")
+        elif platform.system().lower() != 'linux':
+            print("Git commit functionality disabled: not running on Linux")
+        else:
+            print("Git commit functionality disabled: GITHUB_USER_NAME or GITHUB_TOKEN not set")
     
     def _format_duration(self, seconds: float) -> str:
         """Format duration in seconds to human-readable string."""
@@ -53,6 +70,75 @@ class EmailNotifier:
             return f"{numeric_value:.{decimals}f}"
         except (TypeError, ValueError):
             return "—"
+    
+    def _enhance_results_with_memory_data(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Enhance results with memory data from CSV files."""
+        if not results:
+            return results
+        
+        enhanced_results = {}
+        
+        for lang, lang_data in results.items():
+            enhanced_results[lang] = {}
+            
+            # Handle both nested results format and direct summary format
+            tests_data = lang_data.get('summary', lang_data) if isinstance(lang_data, dict) and 'summary' in lang_data else lang_data
+            
+            if isinstance(tests_data, dict):
+                enhanced_results[lang]['summary'] = {}
+                
+                for test_name, metrics in tests_data.items():
+                    if isinstance(metrics, dict):
+                        enhanced_metrics = metrics.copy()
+                        
+                        # Try to find memory CSV file for this language/test combination
+                        memory_csv_patterns = [
+                            f"Benchmark/results/{lang}/{test_name}_memory.csv",
+                            f"Benchmark/linux_results/{lang}/{test_name}_memory.csv",
+                            f"results/{lang}/{test_name}_memory.csv",
+                            f"linux_results/{lang}/{test_name}_memory.csv"
+                        ]
+                        
+                        memory_mb = None
+                        for pattern in memory_csv_patterns:
+                            if os.path.exists(pattern):
+                                try:
+                                    with open(pattern, 'r') as f:
+                                        reader = csv.DictReader(f)
+                                        memory_values = []
+                                        for row in reader:
+                                            if 'memory_mb' in row:
+                                                try:
+                                                    memory_values.append(float(row['memory_mb']))
+                                                except (ValueError, TypeError):
+                                                    continue
+                                        
+                                        if memory_values:
+                                            # Calculate average memory usage
+                                            memory_mb = sum(memory_values) / len(memory_values)
+                                            break
+                                            
+                                except (IOError, csv.Error):
+                                    continue
+                        
+                        # Add memory data if found
+                        if memory_mb is not None:
+                            enhanced_metrics['avg_memory_mb'] = memory_mb
+                            enhanced_metrics['memory_mb'] = memory_mb
+                        
+                        enhanced_results[lang]['summary'][test_name] = enhanced_metrics
+                    else:
+                        enhanced_results[lang]['summary'][test_name] = metrics
+                        
+                # Copy any other fields from the original language data
+                if isinstance(lang_data, dict):
+                    for key, value in lang_data.items():
+                        if key != 'summary':
+                            enhanced_results[lang][key] = value
+            else:
+                enhanced_results[lang] = lang_data
+                
+        return enhanced_results
 
     def _format_results_summary(self, results: Dict[str, Any]) -> str:
         """Format benchmark results into a modern HTML summary."""
@@ -63,9 +149,12 @@ class EmailNotifier:
             </div>
             """
         
+        # Enhance results with memory data from CSV files
+        enhanced_results = self._enhance_results_with_memory_data(results)
+        
         # Extract results with proper field mapping
         table_rows = []
-        for lang, lang_data in results.items():
+        for lang, lang_data in enhanced_results.items():
             if isinstance(lang_data, dict):
                 # Handle both nested results format and direct summary format
                 tests_data = lang_data.get('summary', lang_data) if 'summary' in lang_data else lang_data
@@ -126,13 +215,13 @@ class EmailNotifier:
             <div style="overflow-x: auto; border-radius: 0.5rem; border: 1px solid #dee2e6; background: white;">
                 <table style="width: 100%; border-collapse: collapse; font-size: 0.875rem;">
                     <thead>
-                        <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
-                            <th style="padding: 16px; text-align: left; font-weight: 600;">Language</th>
-                            <th style="padding: 16px; text-align: left; font-weight: 600;">Test Suite</th>
-                            <th style="padding: 16px; text-align: right; font-weight: 600;">Avg Latency<br><small style="opacity: 0.8;">(ms)</small></th>
-                            <th style="padding: 16px; text-align: right; font-weight: 600;">P99 Latency<br><small style="opacity: 0.8;">(ms)</small></th>
-                            <th style="padding: 16px; text-align: right; font-weight: 600;">Throughput<br><small style="opacity: 0.8;">(req/s)</small></th>
-                            <th style="padding: 16px; text-align: right; font-weight: 600;">Memory<br><small style="opacity: 0.8;">(MB)</small></th>
+                        <tr style="background: #495057; color: white;">
+                            <th style="padding: 16px; text-align: left; font-weight: 600; border-right: 1px solid rgba(255,255,255,0.1);">Language</th>
+                            <th style="padding: 16px; text-align: left; font-weight: 600; border-right: 1px solid rgba(255,255,255,0.1);">Test Suite</th>
+                            <th style="padding: 16px; text-align: right; font-weight: 600; border-right: 1px solid rgba(255,255,255,0.1);">Avg Latency<br><small style="opacity: 0.9;">(ms)</small></th>
+                            <th style="padding: 16px; text-align: right; font-weight: 600; border-right: 1px solid rgba(255,255,255,0.1);">P99 Latency<br><small style="opacity: 0.9;">(ms)</small></th>
+                            <th style="padding: 16px; text-align: right; font-weight: 600; border-right: 1px solid rgba(255,255,255,0.1);">Throughput<br><small style="opacity: 0.9;">(req/s)</small></th>
+                            <th style="padding: 16px; text-align: right; font-weight: 600;">Memory<br><small style="opacity: 0.9;">(MB)</small></th>
                         </tr>
                     </thead>
                     <tbody style="background: white;">
@@ -146,11 +235,120 @@ class EmailNotifier:
         </div>
         """
     
+    def _run_git_command(self, command: List[str], cwd: str = None) -> tuple[bool, str]:
+        """Run a git command and return success status and output."""
+        try:
+            result = subprocess.run(
+                command,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            return result.returncode == 0, result.stdout + result.stderr
+        except subprocess.TimeoutExpired:
+            return False, "Command timed out"
+        except Exception as e:
+            return False, str(e)
+    
+    def _commit_results_to_git(self, mode: str) -> bool:
+        """Commit results to git if on Linux and not in debug mode."""
+        # Check if conditions are met for git commit
+        if platform.system().lower() != 'linux':
+            print("Skipping git commit: not running on Linux")
+            return False
+            
+        if mode == 'debug':
+            print("Skipping git commit: running in debug mode")
+            return False
+            
+        if not self.git_enabled:
+            print("Skipping git commit: GITHUB_USER_NAME or GITHUB_TOKEN not set")
+            return False
+            
+        results_dir = "Benchmark/results"
+        linux_results_dir = "Benchmark/linux_results"
+        
+        if not os.path.exists(results_dir):
+            print(f"Skipping git commit: {results_dir} directory not found")
+            return False
+            
+        try:
+            print("Starting git commit process...")
+            
+            # Configure git user
+            print("Configuring git user...")
+            success, output = self._run_git_command(['git', 'config', 'user.name', 'CLI'])
+            if not success:
+                print(f"Failed to set git user.name: {output}")
+                return False
+                
+            success, output = self._run_git_command(['git', 'config', 'user.email', 'me@lexo.cool'])
+            if not success:
+                print(f"Failed to set git user.email: {output}")
+                return False
+            
+            # Pull latest changes
+            print("Pulling latest changes...")
+            success, output = self._run_git_command(['git', 'pull', 'origin', 'main'])
+            if not success:
+                print(f"Warning: Failed to pull latest changes: {output}")
+                # Continue anyway as this might not be critical
+            
+            # Remove existing linux_results directory if it exists
+            if os.path.exists(linux_results_dir):
+                print(f"Removing existing {linux_results_dir} directory...")
+                shutil.rmtree(linux_results_dir)
+                
+                # Stage the deletion
+                success, output = self._run_git_command(['git', 'add', linux_results_dir])
+                if not success:
+                    print(f"Warning: Failed to stage deletion of {linux_results_dir}: {output}")
+            
+            # Rename results to linux_results
+            print(f"Renaming {results_dir} to {linux_results_dir}...")
+            shutil.move(results_dir, linux_results_dir)
+            
+            # Stage the new linux_results directory
+            print("Staging linux_results for commit...")
+            success, output = self._run_git_command(['git', 'add', linux_results_dir])
+            if not success:
+                print(f"Failed to stage {linux_results_dir}: {output}")
+                return False
+            
+            # Create commit message
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            commit_message = f"""Add Linux benchmark results - {timestamp}
+
+🤖 Generated with Claude Code (https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"""
+            
+            # Commit the changes
+            print("Creating commit...")
+            success, output = self._run_git_command(['git', 'commit', '-m', commit_message])
+            if not success:
+                if "nothing to commit" in output.lower():
+                    print("No changes to commit")
+                    return True
+                else:
+                    print(f"Failed to create commit: {output}")
+                    return False
+            
+            print(f"Successfully committed results to git: {output}")
+            return True
+            
+        except Exception as e:
+            print(f"Error during git commit process: {e}")
+            traceback.print_exc()
+            return False
+    
     def send_completion_email(self, 
                             duration: float,
                             results: Optional[Dict[str, Any]] = None,
                             languages: Optional[List[str]] = None,
-                            tests: Optional[List[str]] = None) -> bool:
+                            tests: Optional[List[str]] = None,
+                            mode: Optional[str] = None) -> bool:
         """Send email notification for successful workflow completion.
         
         Args:
@@ -158,12 +356,19 @@ class EmailNotifier:
             results: Dictionary containing benchmark results
             languages: List of languages tested
             tests: List of test suites executed
+            mode: Benchmark mode (debug, normal, etc.)
             
         Returns:
             bool: True if email sent successfully, False otherwise
         """
+        # Attempt git commit before sending email (only on Linux, non-debug mode)
+        git_commit_success = False
+        if mode:
+            git_commit_success = self._commit_results_to_git(mode)
+        
         if not self.enabled or not self.to_emails:
-            return False
+            # Even if email is disabled, we might have done git commit
+            return git_commit_success
         
         try:
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -184,11 +389,11 @@ class EmailNotifier:
                 
                 <div style="background: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden; margin-bottom: 20px;">
                     <!-- Header -->
-                    <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); padding: 2rem; text-align: center;">
-                        <h1 style="color: white; margin: 0; font-size: 1.75rem; font-weight: 700;">
+                    <div style="background: #28a745; padding: 2rem; text-align: center;">
+                        <h1 style="color: white; margin: 0; font-size: 1.75rem; font-weight: 600;">
                             ✅ Benchmark Completed Successfully
                         </h1>
-                        <p style="color: rgba(255, 255, 255, 0.9); margin: 0.5rem 0 0 0; font-size: 1rem;">
+                        <p style="color: rgba(255, 255, 255, 0.95); margin: 0.5rem 0 0 0; font-size: 1rem;">
                             Workflow finished at {timestamp}
                         </p>
                     </div>
@@ -246,11 +451,14 @@ class EmailNotifier:
             
             response = resend.Emails.send(params)
             print(f"Completion email sent successfully: {response}")
+            
+            # Return True if either email was sent successfully OR git commit was successful
             return True
             
         except Exception as e:
             print(f"Failed to send completion email: {e}")
-            return False
+            # Return git commit success status even if email failed
+            return git_commit_success
     
     def send_failure_email(self,
                           error_message: str,
@@ -314,11 +522,11 @@ class EmailNotifier:
                 
                 <div style="background: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden; margin-bottom: 20px;">
                     <!-- Header -->
-                    <div style="background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); padding: 2rem; text-align: center;">
-                        <h1 style="color: white; margin: 0; font-size: 1.75rem; font-weight: 700;">
+                    <div style="background: #dc3545; padding: 2rem; text-align: center;">
+                        <h1 style="color: white; margin: 0; font-size: 1.75rem; font-weight: 600;">
                             ❌ Benchmark Workflow Failed
                         </h1>
-                        <p style="color: rgba(255, 255, 255, 0.9); margin: 0.5rem 0 0 0; font-size: 1rem;">
+                        <p style="color: rgba(255, 255, 255, 0.95); margin: 0.5rem 0 0 0; font-size: 1rem;">
                             Failure occurred at {timestamp}
                         </p>
                     </div>
@@ -403,11 +611,11 @@ class EmailNotifier:
                     
                     <div style="background: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden; margin-bottom: 20px;">
                         <!-- Header -->
-                        <div style="background: linear-gradient(135deg, #6f42c1 0%, #e83e8c 100%); padding: 2rem; text-align: center;">
-                            <h1 style="color: white; margin: 0; font-size: 1.75rem; font-weight: 700;">
+                        <div style="background: #6f42c1; padding: 2rem; text-align: center;">
+                            <h1 style="color: white; margin: 0; font-size: 1.75rem; font-weight: 600;">
                                 🧪 Test Email
                             </h1>
-                            <p style="color: rgba(255, 255, 255, 0.9); margin: 0.5rem 0 0 0; font-size: 1rem;">
+                            <p style="color: rgba(255, 255, 255, 0.95); margin: 0.5rem 0 0 0; font-size: 1rem;">
                                 Email notification system test
                             </p>
                         </div>

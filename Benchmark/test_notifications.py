@@ -70,7 +70,8 @@ def test_completion_email():
         duration=187.5,  # ~3 minutes
         results=sample_results,
         languages=["java", "go"],
-        tests=["prime", "light"]
+        tests=["prime", "light"],
+        mode="normal"  # Test with normal mode
     )
     
     if success:
