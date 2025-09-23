@@ -5,13 +5,30 @@
   "vus": 64,
   "duration": "10m",
   "mode": "normal",
-  "repeats": 2,
-  "timestamp": "2025-09-23T10:55:43.849288",
+  "repeats": 1,
+  "timestamp": "2025-09-23T16:27:39.848597",
   "summary": {
+    "kv": {
+      "http_reqs": 0.0,
+      "throughput": 0.0,
+      "latency_avg": 0.0,
+      "latency_p50": 0.0,
+      "latency_p95": 0.0,
+      "latency_p99": 0.0
+    },
+    "prime": {
+      "http_reqs": 0.0,
+      "throughput": 0.0,
+      "latency_avg": 0.0,
+      "latency_p50": 0.0,
+      "latency_p95": 0.0,
+      "latency_p99": 0.0
+    },
     "light": {
       "http_reqs": 0.0,
       "throughput": 0.0,
       "latency_avg": 0.0,
+      "latency_p50": 0.0,
       "latency_p95": 0.0,
       "latency_p99": 0.0
     }
