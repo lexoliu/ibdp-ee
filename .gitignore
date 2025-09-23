@@ -3,7 +3,6 @@
 .DS_Store
 /Benchmark/java/target
 *.blg
-*.log
 *.gzropeproject
 .DS_Store
 /Benchmark/rust/target
