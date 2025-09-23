@@ -8,7 +8,6 @@
 .DS_Store
 /Benchmark/rust/target
 *.blg
-*.log
 *.gz
 /Benchmark/results
 *.pyc
