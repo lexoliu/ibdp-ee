@@ -3,11 +3,18 @@
   "label": "rust-normal",
   "base_url": "http://172.17.107.206:8080",
   "vus": 64,
-  "duration": "5m",
+  "duration": "10m",
   "mode": "normal",
   "repeats": 2,
-  "timestamp": "2025-09-22T18:09:44.249187",
+  "timestamp": "2025-09-23T13:49:23.707832",
   "summary": {
+    "kv": {
+      "http_reqs": 0.0,
+      "throughput": 0.0,
+      "latency_avg": 0.0,
+      "latency_p95": 0.0,
+      "latency_p99": 0.0
+    },
     "prime": {
       "http_reqs": 0.0,
       "throughput": 0.0,
@@ -16,13 +23,6 @@
       "latency_p99": 0.0
     },
     "light": {
-      "http_reqs": 0.0,
-      "throughput": 0.0,
-      "latency_avg": 0.0,
-      "latency_p95": 0.0,
-      "latency_p99": 0.0
-    },
-    "kv": {
       "http_reqs": 0.0,
       "throughput": 0.0,
       "latency_avg": 0.0,
