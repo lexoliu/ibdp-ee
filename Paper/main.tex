@@ -7,7 +7,7 @@
 \usepackage{amsmath}
 \usepackage{listings}
 \usepackage{xcolor}
-\usepackage{natbib}
+\usepackage[numbers,super,sort&compress]{natbib}
 \usepackage{tikz}
 \usepackage{graphicx}
 \usepackage{svg}
@@ -312,7 +312,9 @@ This analysis design enables both cross-language comparison with statistical sig
 
 \section{Results \& Analysis}
 
-This section presents the empirical findings of the benchmark experiments conducted on Linux servers (8 vCPU, 32GB RAM, Aliyun Tokyo region) across three workload groups: \textbf{Prime (compute-intensive)}, \textbf{Light (serialization)}, and \textbf{KV (allocation-heavy key-value store)}. For each workload, we compare throughput (requests per second), median latency (P50, ms), and memory consumption (RSS, MB) across Java, Go, and Rust implementations.
+This section presents the empirical findings of the benchmark experiments conducted on Linux servers (8 vCPU, 32GB RAM, Aliyun Tokyo region) across three workload groups: \textbf{Prime (compute-intensive)}, \textbf{Light (serialization)}, and \textbf{KV (allocation-heavy key-value store)}. For each workload, we compare throughput (requests per second), median latency (P50, ms), and memory consumption (RSS, GB) across Java, Go, and Rust implementations.
+
+\textbf{Note on Service Stability}: During extended testing periods (10+ minutes), all implementations experienced service restarts due to resource constraints or stability issues. Performance metrics reflect stable operation periods, with restart behavior analyzed separately in Section~\ref{sec:stability-analysis}.
 
 \subsection{Performance Summary}
 
@@ -320,22 +322,22 @@ This section presents the empirical findings of the benchmark experiments conduc
   \centering
   \begin{tabular}{@{}llrrrr@{}}
   \toprule
-  Workload & Language & Throughput (req/s) & P50 (ms) & P99 (ms) & Memory (MB) \\
+  Workload & Language & Throughput (req/s) & P50 (ms) & Stability & Memory (GB) \\
   \midrule
-  \multirow{3}{*}{Prime} & Rust & $32{,}500 \pm 580$ & $1.9 \pm 0.1$ & $3.2 \pm 0.2$ & $95 \pm 2$ \\
-                         & Go   & $30{,}800 \pm 420$ & $2.0 \pm 0.1$ & $3.8 \pm 0.3$ & $96 \pm 3$ \\
-                         & Java & $11{,}800 \pm 320$ & $5.3 \pm 0.2$ & $12.1 \pm 0.8$ & $102 \pm 4$ \\
+  \multirow{3}{*}{Prime} & Java & $\sim13{,}000$ & $\sim1.0$ & Restart @400s & $5.8$ \\
+                         & Go   & $\sim20{,}000$ & $\sim1.0$ & Restart @400s & $4.0$ \\
+                         & Rust & $\sim30{,}000$ & $\sim1.0$ & Restart @400s & $4.2$ \\
   \midrule
-  \multirow{3}{*}{Light} & Rust & $19{,}900 \pm 280$ & $1.5 \pm 0.1$ & $3.1 \pm 0.2$ & $95 \pm 2$ \\
-                         & Go   & $19{,}900 \pm 300$ & $1.6 \pm 0.1$ & $3.4 \pm 0.2$ & $96 \pm 3$ \\
-                         & Java & $20{,}100 \pm 350$ & $1.6 \pm 0.1$ & $3.7 \pm 0.3$ & $102 \pm 4$ \\
+  \multirow{3}{*}{Light} & Java & $\sim13{,}000$ & $\sim1.0$ & Restart @300s & $5.8$ \\
+                         & Go   & $\sim25{,}000$ & $\sim1.0$ & Restart @450s & $3.5$ \\
+                         & Rust & $\sim25{,}000$ & $\sim1.0$ & Restart @300s & $4.2$ \\
   \midrule
-  \multirow{3}{*}{KV}    & Rust & $23{,}200 \pm 340$ & $1.3 \pm 0.1$ & $2.8 \pm 0.2$ & $920 \pm 30$ \\
-                         & Go   & $23{,}100 \pm 380$ & $1.3 \pm 0.1$ & $2.9 \pm 0.2$ & $960 \pm 30$ \\
-                         & Java & $22{,}900 \pm 420$ & $1.4 \pm 0.1$ & $3.2 \pm 0.3$ & $1{,}020 \pm 40$ \\
+  \multirow{3}{*}{KV}    & Java & $\sim8{,}000$ & $\sim2.0$ & Stable & $4.8$ \\
+                         & Go   & $\sim8{,}000$ & $\sim2.0$ & Stable & $3.6$ \\
+                         & Rust & $\sim8{,}000$ & $\sim2.0$ & Stable & $3.8$ \\
   \bottomrule
   \end{tabular}
-  \caption{Performance summary across all workloads (n=5 independent runs per language-workload combination, 64 virtual users, 10-minute duration each). Values show mean ± 95\% confidence intervals constructed using Student's t-distribution with 4 degrees of freedom. Confidence level: $\alpha=0.05$.}
+  \caption{Performance summary across all workloads showing stable-state performance before service restarts. Throughput and latency values represent steady-state periods. Stability column indicates restart times during 10-minute benchmark runs. Memory values show peak stable consumption before restart events.}
   \label{tab:performance-summary}
 \end{table}
 
@@ -344,51 +346,56 @@ This section presents the empirical findings of the benchmark experiments conduc
 \begin{figure}[h]
     \centering
     \includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/comparison_prime.png}
-    \caption{Performance comparison in Prime workload (compute-intensive) showing throughput (req/s) and median latency (ms). Java significantly underperforms with 63\% lower throughput and 2.7× higher latency compared to Rust and Go, despite minimal memory allocation.}
+    \caption{Performance comparison in Prime workload (compute-intensive) showing throughput, latency, and memory consumption over time. All services experience restarts around 400s due to stability issues, with Rust achieving highest throughput ($\sim$30k req/s) before restart, followed by Go ($\sim$20k req/s) and Java ($\sim$13k req/s).}
     \label{fig:prime-performance}
 \end{figure}
 
-The prime number benchmark revealed the most dramatic performance differences between languages. Rust achieved the highest throughput at 32,500 requests per second with a median latency of 1.9ms, while Go performed comparably at 30,800 req/s and 2.0ms median latency. Java, however, significantly underperformed with only 11,800 req/s throughput and 5.3ms median latency—representing a 63\% reduction in throughput compared to Rust and 2.7× higher latency.
+The prime number benchmark revealed significant performance hierarchies and stability challenges. During stable operation periods (0-400s), Rust achieved the highest sustained throughput at approximately 30,000 requests per second, Go maintained around 20,000 req/s, while Java consistently operated at roughly 13,000 req/s—representing a 57\% performance gap between Rust and Java.
 
-Critically, this performance gap occurs in a workload with minimal memory allocation, indicating that garbage collection is not the primary bottleneck. Instead, the results point to fundamental JVM runtime overhead including JIT compilation costs, object model inefficiencies, and runtime safety checks that impact even allocation-free computational workloads.
+Memory consumption patterns showed Java requiring significantly more resources (5.8GB) compared to Go and Rust (4.0-4.2GB), suggesting JVM overhead even in compute-intensive scenarios. Critically, all implementations experienced service restarts around 400 seconds, indicating resource exhaustion or stability issues under sustained high-load conditions.
+
+The performance hierarchy persists in this minimal-allocation workload, suggesting that garbage collection is not the primary differentiator. Instead, the results highlight fundamental runtime characteristics: Rust's zero-cost abstractions, Go's efficient runtime, and Java's JVM overhead including object model costs and runtime safety mechanisms that impact even computation-heavy workloads.
 
 \subsection{Light Workload: Serialization and Moderate Allocation}
 
 \begin{figure}[h]
     \centering
     \includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/comparison_light.png}
-    \caption{Performance comparison in Light workload (serialization tasks) showing convergent throughput (req/s) and latency (ms) across all languages. All achieve $\approx$20,000 req/s with <7\% variation, demonstrating minimal GC overhead under moderate allocation pressure.}
+    \caption{Performance comparison in Light workload (serialization tasks) showing throughput, latency, and memory patterns. Go and Rust achieve $\sim$25k req/s during stable periods, while Java maintains $\sim$13k req/s. Services experience restarts at different intervals: Java@300s, Rust@300s, Go@450s, with Go showing extreme latency spikes during restart sequences.}
     \label{fig:light-performance}
 \end{figure}
 
-The Light workload, comprising echo, JSON serialization, and JSON-to-XML conversion tasks, produced remarkably convergent results across all three languages. All implementations achieved approximately 20,000 requests per second with median latencies between 1.5-1.6ms, representing less than 7\% variation between languages.
+The Light workload, comprising echo, JSON serialization, and JSON-to-XML conversion tasks, revealed distinct performance patterns and varying stability characteristics. Go and Rust achieved substantially higher throughput during stable periods ($\sim$25,000 req/s) compared to Java's consistent $\sim$13,000 req/s, maintaining the performance hierarchy observed in the Prime workload.
 
-This convergence is particularly significant because it demonstrates that under moderate allocation pressure—where serialization creates temporary objects—garbage collection overhead is minimal. Java's performance recovered dramatically from the Prime workload, achieving slightly higher throughput (20,100 req/s) than both Rust and Go (19,900 req/s each), suggesting that the JVM's optimizations become effective when handling I/O-bound operations with moderate object creation.
+Memory consumption showed Java requiring the highest resources (5.8GB), while Go operated efficiently at 3.5GB and Rust at 4.2GB. Notably, service restart patterns varied significantly: Java and Rust experienced failures around 300 seconds, while Go demonstrated better stability lasting until 450 seconds before restart.
 
-Latency characteristics remained consistent across languages, with P99 latencies between 3.1--3.7 ms, indicating that modern garbage collectors like Go's concurrent GC introduce negligible pause times under typical web service workloads.
+A critical observation was Go's extreme latency degradation during restart sequences, showing spikes exceeding 200ms—highlighting the importance of graceful failure handling in production environments. The persistent performance gaps across workloads suggest that runtime architecture, rather than garbage collection overhead, primarily determines throughput characteristics under serialization workloads.
 
 \subsection{KV Workload: Allocation-Heavy, Persistent State}
 
 \begin{figure}[h]
     \centering
     \includegraphics[width=0.9\linewidth]{../Benchmark/linux_results/plots/comparison_kv.png}
-    \caption{Performance comparison in KV workload (allocation-heavy key-value operations) showing throughput (req/s), latency (ms), and memory consumption (MB). All languages achieve $\approx$23,000 req/s with <1.3\% variation, demonstrating minimal GC overhead even under intensive allocation patterns.}
+    \caption{Performance comparison in KV workload (allocation-heavy key-value operations) showing distinct prewarm phase (0-250s) with gradual memory growth, followed by stable measurement phase (250-600s) at $\sim$8k req/s and $\sim$2ms latency. Memory stabilizes at: Java 4.8GB, Rust 3.8GB, Go 3.6GB. Unlike other workloads, KV shows excellent stability with no service restarts.}
     \label{fig:kv-performance}
 \end{figure}
 
-The KV workload, implementing GET/SET/DELETE operations on a persistent key-value store, was designed to stress memory allocation patterns through frequent object creation and map modifications. To simulate realistic cache middleware scenarios, the benchmark employs varied data patterns including user session data (JSON objects with authentication tokens and preferences), API response caches (paginated lists with metadata), configuration data, document content, and base64-encoded binary-like data. This heterogeneous value distribution with sizes ranging from 200 bytes to 10KB creates realistic allocation pressure patterns found in production cache systems. Contrary to expectations about garbage collection overhead under allocation pressure, all three languages demonstrated remarkably similar performance:
+The KV workload demonstrates allocation-heavy performance under sustained pressure with GET/SET/DELETE operations on a persistent key-value store using varied data patterns (200 bytes to 10KB).
+
+Results show two distinct phases:
+
+\textbf{Prewarm Phase (0-250s)}: Memory growth to populate 6.4 million entries at $\sim$2,500 req/s.
+
+\textbf{Measurement Phase (250-600s)}: Convergent performance across all languages:
 
 \begin{itemize}
-    \item \textbf{Rust}: 23,200 req/s throughput, 1.3ms median latency, 920MB memory
-    \item \textbf{Go}: 23,100 req/s throughput, 1.3ms median latency, 960MB memory
-    \item \textbf{Java}: 22,900 req/s throughput, 1.4ms median latency, 1,020MB memory
+    \item \textbf{Throughput}: All languages achieve $\sim$8,000 req/s with minimal variation
+    \item \textbf{Latency}: Consistent $\sim$2ms median latency across implementations
+    \item \textbf{Memory}: Java 4.8GB, Rust 3.8GB, Go 3.6GB
+    \item \textbf{Stability}: No service restarts observed during 600-second runs
 \end{itemize}
 
-The load generator constrains identifier space to \texttt{VUs $\times$ 100,000} unique keys so all languages encounter identical resident state bounds. Higher throughput therefore only determines how quickly the map reaches this ceiling; once populated, subsequent SET operations overwrite existing entries rather than growing the footprint indefinitely. After each run the benchmark harness queries a \texttt{/kv/stats} endpoint exposed by every implementation to verify that the store contains the full \texttt{VUs $\times$ 100,000} entries, discarding any run that fails this invariant. This design keeps the test comparable across languages while still exposing a visible "fill" phase in the memory plots where the store approaches steady state.
-
-The performance convergence is striking—less than 1.3\% variation in throughput and minimal median latency differences even under the most allocation-intensive workload. Memory consumption stabilized at approximately 920-1,020MB across all languages after storing 6.4 million key-value pairs (64 VUs × 100,000 keys), aligning with theoretical estimates of ~150 bytes per entry including hash map overhead.
-
-This result challenges conventional assumptions about garbage collection performance penalties and demonstrates that modern concurrent garbage collectors can effectively handle allocation-heavy workloads without significant overhead.
+Unlike Prime/Light workloads, KV shows excellent stability with no restarts. Performance convergence challenges assumptions about GC overhead under allocation pressure, demonstrating modern collectors' efficiency. Phase separation validates prewarm methodology for fair stateful comparisons.
 
 \subsection{Garbage Collection Telemetry Analysis}
 
@@ -487,11 +494,22 @@ These findings suggest that the decision between garbage-collected and manually-
 
 Ensuring implementation consistency across languages presented the primary methodological challenge. Each language was implemented using mature web frameworks as described in §4.2: Axum for Rust, Chi for Go, and Spring Boot WebFlux for Java, with deliberately basic implementations to minimize framework-specific optimizations that could confound results.
 
-A critical challenge emerged during KV workload testing: initial runs showed that languages with higher throughput paradoxically appeared to use more memory. Investigation revealed that some SET operations were failing or not persisting, causing an inverse relationship where slower languages completed fewer insertions and thus consumed less memory. To ensure measurement validity, we introduced a \texttt{/kv/stats} endpoint in all implementations to verify that the expected number of keys (VUs × 100,000) were actually stored. The k6 load generator was enhanced with retry logic for failed SET operations, and any benchmark run failing the post-execution consistency check was discarded. This validation mechanism proved essential for fair comparison, as it ensured all languages operated on identical dataset sizes rather than allowing silent failures to skew results.
+A critical challenge emerged during KV testing: higher throughput languages paradoxically showed higher memory usage due to silent SET operation failures. We introduced \texttt{/kv/stats} endpoints and retry logic, discarding runs failing consistency checks to ensure fair comparison with identical dataset sizes.
 
 \subsection{Critical Learning Through Research Evolution}
 
-\textbf{Research Learning}: Five critical discoveries shaped methodology and understanding: (1) Migration to cloud servers eliminated development environment biases; (2) JVM warm-up protocols separated compilation from steady-state effects; (3) Go's near-parity with Rust (<5\% variation) reframed questions from "How much GC overhead?" to "Why is modern GC so efficient?"; (4) Silent KV failures taught the necessity of deep validation beyond surface metrics; (5) Java's workload-dependent performance revealed runtime architecture often dominates GC overhead, challenging assumptions about garbage collection being the primary bottleneck.
+Key discoveries: Cloud migration eliminated environment biases; JVM warm-up separated compilation effects; Go's near-parity with Rust reframed efficiency questions; silent KV failures highlighted validation necessity; Java's workload dependence revealed runtime architecture often dominates GC overhead.
+
+\subsection{Service Stability Analysis}
+\label{sec:stability-analysis}
+
+Extended 10-minute runs revealed workload-dependent stability patterns with significant production implications.
+
+\textbf{Restart Patterns}: Prime (all languages @400s), Light (Java/Rust @300s, Go @450s), KV (no restarts).
+
+\textbf{Key Findings}: Memory footprint (Java 5.8GB vs others 3.5-4.2GB) showed no stability correlation. KV's highest memory usage (3.6-4.8GB) remained stable, suggesting allocation patterns matter more than absolute consumption. Go exhibited concerning 200ms latency spikes during Light workload restarts.
+
+Computational workloads (Prime/Light) triggered instability while allocation-heavy KV remained stable, indicating pattern-dependent resilience. These results emphasize that benchmarks must consider stability alongside throughput for realistic deployment guidance.
 
 \subsection{Unexpected Findings and Performance Insights}
 
