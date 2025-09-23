@@ -42,7 +42,7 @@ def resolve_kv_key_space(mode: str) -> int:
             print(f"Warning: invalid K6_KV_KEY_SPACE override '{override}', using default")
 
     # Reduced key space for debug mode to accommodate realistic cache data complexity
-    return 250 if mode == "debug" else 100_000
+    return 250 if mode == "debug" else 10_000
 
 # Prioritize `kv` because it tends to surface stability problems fastest.
 DEFAULT_TEST_ORDER = ["kv", "prime", "light"]
@@ -418,8 +418,8 @@ def run_benchmark(
             if entries is None:
                 raise RuntimeError("Unable to verify KV occupancy after benchmark run")
             
-            # Calculate tolerance (30% of expected for realistic cache data)
-            tolerance = int(expected_entries * 0.3)
+            # Calculate tolerance (10% of expected for realistic cache data)
+            tolerance = int(expected_entries * 0.1)
             difference = abs(entries - expected_entries)
             
             if entries == expected_entries:

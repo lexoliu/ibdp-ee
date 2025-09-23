@@ -29,7 +29,7 @@ const startTimestamp = Date.now();
 const MAX_RETRIES = parseInt(__ENV.K6_MAX_RETRIES || '5', 10);
 const RETRY_DELAY = parseFloat(__ENV.K6_RETRY_DELAY || '0.01');
 const mode = (__ENV.K6_MODE || __ENV.MODE || 'normal').toLowerCase();
-const defaultKeySpace = mode === 'debug' ? 1000 : 100000;
+const defaultKeySpace = mode === 'debug' ? 1000 : 10000;
 const KEY_SPACE = parseInt(__ENV.K6_KV_KEY_SPACE || `${defaultKeySpace}`, 10);
 
 // Realistic cache value generation for middleware simulation

@@ -12,3 +12,4 @@
 *.gz
 /Benchmark/results
 *.pyc
+.env

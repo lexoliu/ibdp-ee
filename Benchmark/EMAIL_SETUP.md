@@ -30,20 +30,16 @@ Set these environment variables:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `EMAIL_NOTIFICATIONS` | No | Set to `true` to enable notifications (default: `false`) |
-| `RESEND_API_KEY` | Yes* | Your Resend API key |
+| `RESEND_API_KEY` | Yes | Your Resend API key (notifications enable automatically when set) |
 | `RESEND_FROM_EMAIL` | No | From email address (default: `benchmark@example.com`) |
 | `RESEND_TO_EMAILS` | Yes* | Comma-separated recipient emails |
 
-*Required only if `EMAIL_NOTIFICATIONS=true`
+*Required so the notifier knows where to send messages
 
 ## Example Configuration
 
 ```bash
-# Enable notifications
-EMAIL_NOTIFICATIONS=true
-
-# Your Resend API key
+# Your Resend API key (automatically enables notifications)
 RESEND_API_KEY=re_abcd1234...
 
 # Verified from address
@@ -100,7 +96,7 @@ Sent when workflow fails:
 - Ensure `RESEND_FROM_EMAIL` matches verified address
 
 ### Emails Not Being Sent
-- Check `EMAIL_NOTIFICATIONS=true` is set
+- Ensure `RESEND_API_KEY` is exported in the shell where you run benchmarks
 - Verify recipient emails in `RESEND_TO_EMAILS`
 - Check Resend dashboard for delivery status
 - Test with `python3 notifications.py`

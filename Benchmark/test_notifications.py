@@ -18,7 +18,7 @@ def test_configuration():
     
     if not notifier.enabled:
         print("\n⚠️  Email notifications are disabled.")
-        print("Set EMAIL_NOTIFICATIONS=true to enable them.")
+        print("Set RESEND_API_KEY in your environment to enable them automatically.")
         return False
     
     if not notifier.api_key:
