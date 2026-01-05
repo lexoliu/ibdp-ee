@@ -144,7 +144,7 @@ Understanding the differences between stack and heap memory is crucial for analy
 
 \subsection{The Challenge of Manual Memory Management}
 
-Early high-level languages such as C and C++ placed all responsibility for heap lifetime on the programmer. The approach delivers raw speed, yet common mistakes—memory leaks, dangling pointers, or double frees—can crash applications or open security holes. These recurring issues motivated automated schemes that keep the performance benefits while avoiding the sharpest edges.
+Early high-level languages such as C and C++ placed all responsibility for heap lifetime on the programmer. The approach delivers raw speed, yet common mistakes—memory leaks, dangling pointers, or double frees—can crash applications or open security holes. Additionally, multithreaded applications face scalability challenges with traditional allocators \citep{berger2000hoard}. These recurring issues motivated automated schemes that keep the performance benefits while avoiding the sharpest edges.
 
 \subsubsection*{Manual Memory Management Examples in C}
 
@@ -244,7 +244,7 @@ Our evaluation targets combined language+ecosystem performance, acknowledging th
 
 \subsection{Runtime Configuration and Memory Management}
 
-Default configurations used: Java (OpenJDK 21) with G1 auto-tuning, Go (1.22) with GOGC=100, Rust (1.80) with ownership-based management.
+Default configurations used: Java (OpenJDK 21) with G1 auto-tuning \citep{oracle2023gctuning}, Go (1.22) with GOGC=100 \citep{goteam2023gcguide}, Rust (1.80) with ownership-based management \citep{rustteam2023ownership}.
 
 Testing environments: local MacBook Pro (M2 Max) for baseline, and Aliyun Tokyo Zone C servers for production testing. Primary test environment used two Aliyun ECS instances within the same security group for internal network communication: ecs.g7.2xlarge (8 vCPU, 32 GiB) hosting services and ecs.c7nex.xlarge (4 vCPU, 8 GiB) for load generation, both running Ubuntu 22.04 64-bit. Both instances equipped with ESSD cloud disks (PL1, 80 GiB, 5800 IOPS) ensuring consistent I/O performance across tests.
 
@@ -597,7 +597,6 @@ The experimental evidence reveals several key findings that challenge convention
 Future research should investigate longer-running applications, memory-intensive workloads, and production deployment scenarios to further validate these findings across diverse operational contexts. Additionally, comprehensive analysis of developer productivity impacts would provide crucial insights for total cost of ownership calculations in technology selection decisions.
 
 \section{References}
-\nocite{*}
 \bibliographystyle{plainnat}
 \bibliography{references}
 
