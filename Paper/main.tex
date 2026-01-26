@@ -74,7 +74,7 @@
 }
 
 \title{Performance Impact of Garbage Collection in Real-World Applications}
-\author{Lexo Liu}
+% Author omitted for IB Extended Essay anonymous assessment
 
 \begin{document}
 
@@ -189,13 +189,13 @@ The theoretical foundations of garbage collection emerged with \citet{mccarthy19
 
 \subsection{Modern Concurrent Collection Algorithms (2015-2024)}
 
-Recent advances focus on ultra-low latency while maintaining throughput. Oracle's ZGC \citep{liden2018zgc} and Red Hat's Shenandoah \citep{flood2016shenandoah} achieve sub-millisecond pauses with terabyte heaps through concurrent compaction, demonstrating GC pause times need not scale with heap size. \citet{clements2018gc} documented Go's runtime improvements through eliminating stop-the-world stack re-scanning, prioritizing predictable response times over raw throughput. \citet{singer2020generational} question the generational hypothesis in modern microservice architectures with object pooling and persistent data structures.
+Recent advances focus on ultra-low latency while maintaining throughput. Oracle's ZGC \citep{liden2018zgc} and Red Hat's Shenandoah \citep{flood2016shenandoah} achieve sub-millisecond pauses with terabyte heaps through concurrent compaction, demonstrating GC pause times need not scale with heap size. \citet{clements2016gc} documented Go's runtime improvements through eliminating stop-the-world stack re-scanning, prioritizing predictable response times over raw throughput. Modern microservice architectures with object pooling and short-lived request handlers may exhibit different allocation patterns than traditional applications, potentially affecting the effectiveness of generational collection strategies.
 
 \subsection{Empirical Performance Studies}
 
 \subsubsection{Language Comparison Studies}
 
-\citet{kiczales2022performance} found language choice impacted performance by up to 10× in multi-core systems, but implementation quality varied by 5× within languages—suggesting developer expertise may matter more than language selection. \citet{lion2022energy} showed garbage-collected languages consumed 2.5-3× more energy for computation-intensive tasks, but achieved parity for I/O-bound workloads.
+Cross-language performance comparisons present methodological challenges, as implementation quality and framework maturity often vary significantly within languages. Prior studies suggest that developer expertise and library selection may impact performance as much as language choice itself, though systematic empirical evidence remains limited.
 
 \subsubsection{Real-World Application Studies}
 
@@ -460,11 +460,11 @@ These telemetry data provide direct evidence that modern garbage collectors intr
 
 \subsection{Memory Consumption Analysis}
 
-Memory measurements used RSS (Resident Set Size) via 1Hz \texttt{ps} sampling, capturing total process memory including framework overhead and runtime systems. Prime and Light workloads showed significant baseline memory consumption: Java (5.8GB), Rust (4.2GB), and Go (2.9GB), reflecting JVM heap pre-allocation, runtime libraries, and framework initialization costs rather than workload-specific state. The KV workload showed distinct phases: fill phase (0-120s) where memory grew to ~900MB as 6.4M keys were inserted, then steady-state (120s+) with stable consumption. Theoretical calculation: 6.4M entries × ~150 bytes/entry (8-byte key + 8-byte value + hashmap overhead) $\approx$ 960MB, closely matching observed RSS values.
+Memory measurements used RSS (Resident Set Size) via 1Hz \texttt{ps} sampling, capturing total process memory including framework overhead and runtime systems. Prime and Light workloads showed significant baseline memory consumption: Java (5.8GB), Rust (4.2GB), and Go (2.9GB), reflecting JVM heap pre-allocation, runtime libraries, and framework initialization costs rather than workload-specific state. The KV workload showed distinct phases: fill phase (0-120s) where memory grew to approximately 0.9GB as 6.4M keys were inserted, then steady-state (120s+) with stable consumption. Theoretical calculation: 6.4M entries × approximately 150 bytes/entry (8-byte key + 8-byte value + hashmap overhead) $\approx$ 0.96GB, closely matching observed RSS values.
 
 \subsection{Cross-Workload Analysis}
 
-Statistical analysis reveals three key patterns that challenge conventional assumptions about garbage collection performance:\footnote{All statistical tests performed with $\alpha=0.05$, using Python scipy.stats. Sample sizes: n=5 runs per language-workload combination. Prerequisites verified: Shapiro-Wilk tests confirmed approximate normality (p>0.05) for parametric tests; Levene's test verified homogeneity of variance where required (p>0.05); Mann-Whitney U used when normality assumptions violated; minimum effect sizes calculated using Cohen's conventions.}
+Statistical analysis reveals three key patterns that challenge conventional assumptions about garbage collection performance:\footnote{All statistical tests performed with $\alpha=0.05$, using Python scipy.stats. Sample sizes: n=5 runs per language-workload combination. Prerequisites verified: Shapiro-Wilk tests confirmed approximate normality (p>0.05) for parametric tests; Levene's test verified homogeneity of variance where required (p>0.05); Mann-Whitney U used when normality assumptions violated; effect sizes calculated using Cohen's conventions (small: $d=0.2$, medium: $d=0.5$, large: $d>0.8$). The extremely large effect sizes (e.g., $d=22.1$) reflect both substantial performance differences (2.3$\times$ throughput gap) and low between-run variance in the controlled cloud environment.}
 
 \begin{enumerate}
     \item \textbf{Workload-dependent performance characteristics}: Java's performance varied dramatically by workload type. In Prime workload, Java showed significantly lower throughput compared to Rust (Welch's t-test: $t(8)=-31.2$, $p<0.001$, Cohen's $d=22.1$, very large effect size). However, in Light workload, one-way ANOVA found no significant difference between languages ($F(2,12)=0.83$, $p=0.46$, $\eta^2=0.12$), demonstrating workload-specific performance patterns.
@@ -558,9 +558,19 @@ Nevertheless, this methodological choice means our results should be interpreted
 
 Several limitations warrant acknowledgment:
 
-Limitations include: 10-minute runs may not reveal long-term GC behavior; synthetic workloads may not capture real complexity; single-environment testing; RSS measurements include shared libraries.
+\begin{itemize}
+    \item \textbf{Service stability under extended load}: All implementations experienced service restarts during 10-minute benchmark runs (Prime/Light workloads at 300-450s), limiting measurements to stable operation periods. Root cause investigation was beyond scope due to resource constraints; however, 300-400 second stable windows exceed typical microservice request lifecycles and provide sufficient data for comparative analysis.
 
-Future research: extended runtime periods, real application porting, cold start performance, energy consumption, developer productivity metrics.
+    \item \textbf{Measurement duration}: 10-minute runs may not reveal long-term GC behavior such as memory fragmentation or heap growth patterns that emerge over hours of operation.
+
+    \item \textbf{Workload representativeness}: Synthetic workloads, while controlled, may not capture the full complexity of production applications with diverse request patterns and external dependencies.
+
+    \item \textbf{Single-environment testing}: Results from Aliyun Tokyo region may not generalize to other cloud providers or hardware configurations.
+
+    \item \textbf{Memory measurement granularity}: RSS measurements include shared library pages and allocator overhead, potentially obscuring true application memory footprint.
+\end{itemize}
+
+Future research directions include: extended runtime periods (hours to days), porting real applications across languages, cold start performance analysis, energy consumption measurements, and developer productivity metrics to assess total cost of ownership.
 
 \subsection{Recommendations for Practice}
 
@@ -583,7 +593,7 @@ The experimental evidence reveals several key findings that challenge convention
   
   \item \textbf{Workload-dependent performance characteristics}: Language performance varied dramatically by workload type, with Java achieving competitive performance in I/O-bound scenarios despite poor computational performance, suggesting that application characteristics should drive language selection decisions.
   
-  \item \textbf{Efficient memory management across strategies}: All languages maintained remarkably low and stable memory footprints (920-1,020MB for 6.4M key-value pairs), indicating that both manual and automatic memory management approaches can be highly efficient in practice.
+  \item \textbf{Efficient memory management across strategies}: All languages maintained remarkably low and stable memory footprints (0.9--1.0GB for 6.4M key-value pairs), indicating that both manual and automatic memory management approaches can be highly efficient in practice.
   
   \item \textbf{Algorithmic validation of GC design philosophies}: Empirical evidence suggests distinct approaches—Go's 59-106$\times$ lower pause times through frequent micro-collections indicate advantages for latency-critical applications, while Java's generational strategy shows effectiveness for throughput optimization despite longer individual pauses.
 \end{itemize}
