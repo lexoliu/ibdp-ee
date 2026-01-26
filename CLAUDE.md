@@ -7,8 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This repository contains a research project comparing garbage collection performance across Go, Java, and Rust implementations, consisting of:
 
 - **Benchmark/**: Multi-language HTTP service benchmarking harness
-- **Paper/**: LaTeX research paper documenting the performance analysis
-- **count_words.py**: Word count utility for the paper
+- **Paper/**: Typst research paper documenting the performance analysis
 
 ## Benchmark Harness
 
@@ -92,14 +91,10 @@ cargo run --release
 Build paper:
 ```bash
 cd Paper
-./build.sh  # Runs update_wordcount.sh then tectonic
+./build.sh  # Compiles main.typ using Typst
 ```
 
-Update word count:
-```bash
-cd Paper
-./update_wordcount.sh
-```
+Word count is automatically calculated by the `wordometer` Typst package and displayed on the title page.
 
 ## Important Configuration
 
@@ -164,7 +159,7 @@ Benchmark results are written to `Benchmark/results/<language>/<timestamp>/`:
 - Python 3.9+
 - k6 (for load testing)
 - Language toolchains: Go 1.24+, Java 21+, Rust 2024 edition
-- tectonic (for paper compilation)
+- typst (for paper compilation)
 
 The project includes setup scripts:
 - `Benchmark/install_server.sh`: Installs server-side dependencies
