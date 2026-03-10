@@ -75,19 +75,19 @@
 
 = Introduction
 
-Modern programming languages face a fundamental trade-off in memory management: explicit control versus automated safety. Languages like C and Rust provide explicit control over memory lifetimes, offering precise control but requiring careful programming to avoid crashes and security vulnerabilities. In contrast, garbage-collected languages like Java and Go automate memory reclamation, reducing bugs but potentially introducing runtime overhead that affects application performance.
+Programming languages handle memory differently, and it matters. Languages like C and Rust make the programmer responsible for allocating and freeing heap memory—fast when done correctly, but a source of crashes and security holes when not. Garbage-collected languages like Java and Go take that burden away: the runtime figures out when objects are no longer needed and reclaims the memory automatically. The cost, supposedly, is performance.
 
-Despite extensive theoretical work on garbage collection, empirical studies comparing GC and non-GC languages often produce conflicting results due to methodological limitations. Most existing comparisons rely on synthetic benchmarks or conflate multiple performance variables, making it difficult to isolate garbage collection's specific impact on real-world applications.
+How much performance? That turns out to be surprisingly hard to answer. Existing comparisons tend to rely on synthetic benchmarks or mix too many variables together, so the results conflict with each other. Most do not isolate garbage collection from other runtime costs like JIT compilation overhead or framework inefficiency.
 
-*This research question is worthy of investigation because it challenges existing assumptions about garbage collection overhead using a production-realistic methodology that has not been applied before.* By implementing algorithmically identical HTTP services across three strategically chosen languages—Rust (manual memory management), Go (concurrent GC), and Java (generational GC)—this study isolates memory management effects while maintaining real-world relevance. The investigation asks: *How do performance characteristics vary between GC and non-GC languages?*
+This essay tries to do better. By implementing algorithmically identical HTTP services in Rust (manual memory management), Go (concurrent GC), and Java (generational GC), it isolates memory management effects while keeping the workloads realistic. The question is: *How do performance characteristics vary between GC and non-GC languages?*
 
-This study evaluates three workload categories (compute-intensive, serialization, and allocation-heavy) using comprehensive performance metrics and garbage collection telemetry analysis to provide empirical evidence for developers making language selection decisions in performance-critical applications.
+Three workload categories—compute-intensive, serialization, and allocation-heavy—are tested with detailed performance metrics and GC telemetry, aiming to give developers real evidence rather than folklore when choosing languages for performance-sensitive work.
 
 = Background: Memory Management in Programming Languages
 
 == Memory Management Fundamentals
 
-Memory management shapes how programs allocate, reuse, and eventually release memory. Most languages separate stack and heap usage. Stack frames hold local variables and disappear automatically when a function returns, so programmers rarely intervene. Heap allocations last longer and require either explicit control (as in C or Rust) or a runtime that reconciles unused objects on the developer's behalf.
+Memory management determines how programs allocate, reuse, and free memory. Most languages split memory between the stack and the heap. Stack frames hold local variables and vanish when a function returns—programmers never think about them. Heap allocations persist beyond function boundaries and need either explicit cleanup (C, Rust) or a runtime that reclaims dead objects automatically.
 
 #figure(
   {
@@ -138,11 +138,11 @@ Memory management shapes how programs allocate, reuse, and eventually release me
   caption: [Stack and Heap Memory Layout in a Typical Program],
 ) <fig:memory-layout>
 
-Understanding the differences between stack and heap memory is crucial for analyzing how programming languages manage memory. In the following sections, we will explore how heap memory is managed through manual techniques and automatic algorithms such as garbage collection.
+The stack/heap distinction matters here because the interesting (and expensive) part of memory management happens on the heap. The rest of this section covers how heap memory is handled—first manually, then through automatic garbage collection.
 
 == The Challenge of Manual Memory Management
 
-Early high-level languages such as C and C++ placed all responsibility for heap lifetime on the programmer. The approach delivers raw speed, yet common mistakes—memory leaks, dangling pointers, or double frees—can crash applications or open security holes. Additionally, multithreaded applications face scalability challenges with traditional allocators @berger2000hoard. These recurring issues motivated automated schemes that keep the performance benefits while avoiding the sharpest edges.
+Early high-level languages like C and C++ left heap lifetime entirely to the programmer. This is fast, but mistakes—memory leaks, dangling pointers, double frees—crash applications or open security holes. Multithreaded programs make things worse, since traditional allocators struggle with contention @berger2000hoard. These recurring problems drove the search for automatic alternatives.
 
 === Manual Memory Management Examples in C
 
@@ -158,89 +158,89 @@ void memory_leak() {
 
 == The Evolution to Automatic Memory Management
 
-As software systems grew in complexity, the burden of manual memory management became increasingly problematic. This led to the development of automatic memory management techniques that could reliably handle memory allocation and deallocation without programmer intervention. Two primary approaches emerged: reference counting and tracing garbage collection.
+As software grew more complex, manual memory management became a bigger liability. Two main automatic approaches emerged: reference counting and tracing garbage collection.
 
 === Reference Counting: A First Step
 
-Reference counting keeps a per-object counter that increments with new references and decrements as they disappear. It spreads reclamation cost across program execution, yet cycles remain a weak point: two objects that point to each other never reach zero and therefore leak.
+Reference counting attaches a counter to each object: it goes up when a new reference is created and down when one disappears. When the counter hits zero, the object is freed. This spreads reclamation cost across execution, but it cannot handle cycles—two objects pointing at each other never reach zero and leak.
 
 == Tracing Garbage Collection: A Comprehensive Solution
 
-Tracing collectors treat the heap as a graph rooted in stack and global references. They mark every reachable object and reclaim whatever remains, naturally handling cycles and most real-world allocation patterns.
+Tracing collectors take a different approach. They treat the heap as a graph rooted in stack and global references, mark everything reachable, and reclaim whatever is left. This handles cycles naturally and works well for most allocation patterns.
 
 === Mark-and-Sweep: The Archetypal Tracing Algorithm
 
-Mark-and-sweep alternates two passes. A mark phase follows pointers from the roots to label live objects; a sweep phase scans memory and frees anything unmarked. Modern collectors build on this template with generational heaps or concurrent marking, but the core intuition is unchanged.
+Mark-and-sweep is the simplest tracing algorithm. A mark phase follows pointers from the roots and labels every live object; a sweep phase walks memory and frees anything unlabeled. Modern collectors add generational heaps or concurrent marking on top, but the core idea is the same.
 
 === Modern Concurrent Collection
 
-Contemporary collectors use tri-color marking with write barriers to maintain consistency during concurrent collection. Most work occurs concurrently with application threads, limiting stop-the-world pauses to sub-millisecond ranges (e.g., 0.08--0.31 ms in our measurements) for brief phases such as root scanning. Go's concurrent collector exemplifies this approach, achieving low-latency collection through concurrent marking and minimal stop-the-world phases. Heap sizing trades collection frequency against pause duration, significantly impacting throughput and latency.
+Today's collectors use tri-color marking with write barriers so they can collect concurrently with running application threads. Stop-the-world pauses are limited to brief phases like root scanning—in our measurements, 0.08–0.31 ms. Go's collector is a good example: it does concurrent marking and keeps pauses short by design. Heap sizing is the main tuning knob, trading collection frequency against pause duration.
 
 == The Performance Overhead of Garbage Collectors
 
-"No silver bullet" applies here as well: removing manual memory bugs means accepting some runtime cost. Garbage collectors can introduce brief pauses, reserve extra heap space, and consume CPU cycles to locate dead objects. Quantifying when those effects matter is the empirical focus of the remainder of this essay.
+The trade-off is real, though. Removing manual memory bugs means accepting some runtime cost: brief pauses, extra heap space, and CPU cycles spent finding dead objects. How much that matters in practice is the empirical question driving the rest of this essay.
 
 = Literature Review
 
 == Evolution of Garbage Collection Theory and Practice
 
-The theoretical foundations of garbage collection emerged with @mccarthy1960lisp's work on Lisp, establishing automatic memory management as a fundamental programming language feature. @wilson1992garbage's comprehensive survey created taxonomies that remain influential, categorizing collectors by their traversal strategies (reference counting vs. tracing), collection timing (incremental vs. stop-the-world), and heap organization (generational vs. regional).
+Garbage collection theory goes back to @mccarthy1960lisp's work on Lisp. @wilson1992garbage's survey organized collectors into categories that are still used today: by traversal strategy (reference counting vs. tracing), timing (incremental vs. stop-the-world), and heap layout (generational vs. regional).
 
 == Modern Concurrent Collection Algorithms (2015-2024)
 
-Recent advances focus on ultra-low latency while maintaining throughput. Oracle's ZGC @liden2018zgc and Red Hat's Shenandoah @flood2016shenandoah achieve sub-millisecond pauses with terabyte heaps through concurrent compaction, demonstrating GC pause times need not scale with heap size. @clements2016gc documented Go's runtime improvements through eliminating stop-the-world stack re-scanning, prioritizing predictable response times over raw throughput. Modern microservice architectures with object pooling and short-lived request handlers may exhibit different allocation patterns than traditional applications, potentially affecting the effectiveness of generational collection strategies.
+Recent work has pushed pause times down dramatically. Oracle's ZGC @liden2018zgc and Red Hat's Shenandoah @flood2016shenandoah achieve sub-millisecond pauses even with terabyte-sized heaps by doing compaction concurrently—pause times no longer need to grow with heap size. @clements2016gc documented how Go's runtime reduced latency by eliminating stop-the-world stack re-scanning, trading throughput for predictable response times. Modern microservice workloads, with their short-lived request handlers and object pooling, may stress generational collectors differently than traditional long-running applications.
 
 == Empirical Performance Studies
 
 === Language Comparison Studies
 
-Cross-language performance comparisons present methodological challenges, as implementation quality and framework maturity often vary significantly within languages. Prior studies suggest that developer expertise and library selection may impact performance as much as language choice itself, though systematic empirical evidence remains limited.
+Comparing languages fairly is hard. Implementation quality and framework maturity vary within a single language, and developer expertise and library choice can affect performance as much as the language itself.
 
 === Real-World Application Studies
 
-@tene2011c4 found that most JVM applications experience acceptable GC overhead when properly configured, with issues typically due to misconfiguration rather than algorithmic limitations. @wang2020microservices showed garbage-collected languages required 20-30% more container memory than equivalent services for comparable performance in containerized environments.
+@tene2011c4 found that most JVM applications have acceptable GC overhead when properly configured—problems usually come from misconfiguration, not algorithmic limits. @wang2020microservices showed that garbage-collected languages needed 20–30% more container memory than equivalent services to hit comparable performance in containerized deployments.
 
 == Memory Safety Without GC
 
-@jung2017rustbelt formally verified Rust's ownership system prevents data races while maintaining C++ performance. However, @astrauskas2020learning found teams require significant time to achieve Rust proficiency. @emre2020adoption studied Rust adoption: while many report improved performance, projects face development time and expertise challenges.
+@jung2017rustbelt formally verified that Rust's ownership system prevents data races while matching C++ performance. But Rust is not free either: @astrauskas2020learning found teams need significant ramp-up time, and @emre2020adoption reported that while Rust adopters often cite performance gains, projects face real development time and expertise costs.
 
 == Gap Analysis and Research Contribution
 
-Existing literature reveals several gaps our research addresses:
+The literature has several gaps that this research tries to address:
 
-+ *Framework-inclusive benchmarking:* Most studies compare bare language runtimes, ignoring framework overhead that dominates real applications. Our approach of using production-ready frameworks (Axum, Chi, Spring WebFlux) provides more actionable insights.
++ Most studies compare bare language runtimes and ignore framework overhead, which dominates real applications. This study uses production-ready frameworks (Axum, Chi, Spring WebFlux) to get more actionable numbers.
 
-+ *Workload diversity:* Previous comparisons often focus on single workload types. Our three-category approach (compute-intensive, serialization, allocation-heavy) enables nuanced understanding of when GC overhead matters.
++ Previous comparisons often focus on a single workload type. Testing across three categories (compute-intensive, serialization, allocation-heavy) reveals when GC overhead actually matters and when it does not.
 
-+ *Statistical rigor:* Many benchmarks report single runs or averages without confidence intervals. Our methodology follows @kalibera2013rigorous's guidelines for statistical validity.
++ Many benchmarks report single runs or averages without confidence intervals. This study follows @kalibera2013rigorous's guidelines for statistical validity with multiple independent runs.
 
-+ *Modern collector evaluation:* Most comparative studies predate recent GC improvements (ZGC, Go 1.19+). Our results reflect current collector capabilities.
++ Most comparative studies predate recent GC improvements like ZGC and Go 1.19+. These results reflect what current collectors can actually do.
 
 = Methodology <sec:methodology>
 
 == Experimental Setup
 
-The experimental design compared three languages representing different compilation and memory management strategies:
+The experiment compared three languages with different compilation and memory management strategies:
 
-- *Rust*: AOT-compiled with ownership-based, non-GC memory management, providing a baseline for deterministic performance
-- *Go*: AOT-compiled with concurrent garbage collection, isolating GC overhead from JIT effects
+- *Rust*: AOT-compiled, ownership-based memory management (no GC), used as the performance baseline
+- *Go*: AOT-compiled with a concurrent garbage collector, isolating GC overhead from JIT effects
 - *Java*: JIT-compiled with generational garbage collection, representing managed runtime environments
 
-This selection enables controlled analysis by separating garbage collection effects from compilation strategy effects, while covering the most common approaches in modern systems programming.
+This selection separates garbage collection effects from compilation strategy effects while covering the most common approaches in modern systems programming.
 
-Following @kalibera2013rigorous, multiple identical runs enabled confidence interval calculation.
+Following @kalibera2013rigorous, multiple identical runs were used to calculate confidence intervals.
 
 == Framework Selection Strategy
 
-Production frameworks selected: Axum (Rust), Chi (Go), Spring Boot WebFlux (Java).
+Production frameworks were used: Axum (Rust), Chi (Go), Spring Boot WebFlux (Java).
 
-Our evaluation targets combined language+ecosystem performance, acknowledging that practitioners select technology stacks, not bare languages. This represents production reality where ecosystem considerations are inseparable from language choice.
+The goal is to measure language+ecosystem performance together, since developers pick technology stacks, not bare languages. This means framework overhead is part of the measurement, which is a deliberate choice discussed further in §6.
 
 == Runtime Configuration and Memory Management
 
-Default configurations used: Java (OpenJDK 21) with G1 auto-tuning @oracle2023gctuning, Go (1.22) with GOGC=100 @goteam2023gcguide, Rust (1.80) with ownership-based management @rustteam2023ownership.
+Default configurations were used throughout: Java (OpenJDK 21) with G1 auto-tuning @oracle2023gctuning, Go (1.22) with GOGC=100 @goteam2023gcguide, Rust (1.80) with ownership-based management @rustteam2023ownership.
 
-Testing environments: local MacBook Pro (M2 Max) for baseline, and Aliyun Tokyo Zone C servers for production testing. Primary test environment used two Aliyun ECS instances within the same security group for internal network communication: ecs.g7.2xlarge (8 vCPU, 32 GiB) hosting services and ecs.c7nex.xlarge (4 vCPU, 8 GiB) for load generation, both running Ubuntu 22.04 64-bit. Both instances equipped with ESSD cloud disks (PL1, 80 GiB, 5800 IOPS) ensuring consistent I/O performance across tests.
+Two test environments were used: a local MacBook Pro (M2 Max) for development, and Aliyun Tokyo Zone C servers for the actual measurements. The primary setup used two Aliyun ECS instances in the same security group: an ecs.g7.2xlarge (8 vCPU, 32 GiB) hosting the services and an ecs.c7nex.xlarge (4 vCPU, 8 GiB) running load generation, both on Ubuntu 22.04. Both had ESSD cloud disks (PL1, 80 GiB, 5800 IOPS) to keep I/O consistent across tests.
 
 == Workload Design
 
@@ -261,11 +261,11 @@ Three workload groups were selected to represent real-world application patterns
   caption: [Workload categories and their characteristics.],
 ) <tab:workloads>
 
-This taxonomy allows analysis across different stress patterns: computational, memory-intensive, and allocation-heavy workloads.
+This spread of workloads lets us see how different stress patterns—computational, memory-intensive, and allocation-heavy—interact with each language's memory management.
 
 == Load Generation and Metrics
 
-Workloads were stressed using the `k6` load testing framework in `normal` mode:
+Load was generated using the `k6` framework in `normal` mode:
 
 - Virtual Users (VUs): 64 across all experiments
 - Duration: 10 minutes per measurement run
@@ -273,14 +273,14 @@ Workloads were stressed using the `k6` load testing framework in `normal` mode:
 - Warm-up: One initial 10-minute run discarded to eliminate JIT compilation effects
 - Base URL: `http://127.0.0.1:8080` for local runs and the manager-advertised service host for Aliyun runs
 
-The pre-warm procedure was essential for ensuring fair comparison, particularly for Java's JIT compiler which requires initial execution to optimize hot code paths. Following @kalibera2013rigorous, multiple independent runs capture measurement variance and enable statistical significance testing of performance differences between languages.
+The warm-up run was important for fairness—Java's JIT compiler needs initial execution to optimize hot paths. Following @kalibera2013rigorous, multiple independent runs capture measurement variance and allow testing whether performance differences between languages are statistically significant.
 
 Each test produced JSON-formatted time-series data capturing:
 - *Throughput (requests/sec)* from `http_reqs` - reported as mean ± 95% CI across 5 runs
 - *Latency Percentiles (ms)* from `http_req_duration`: P50 (median), P90, P99 - enabling tail latency analysis and comparison of latency distributions
 - *Failure Rate* from `http_req_failed` - ensuring measurement validity
 
-Memory consumption was sampled at 1Hz using `ps` to record RSS (resident set size). RSS represents physical memory pages in RAM but includes shared library pages, allocator overhead, and may not reflect true application footprint. Despite these limitations, RSS provides a consistent cross-language metric for comparative analysis. Memory sampling was synchronized with GC telemetry collection:
+Memory was sampled at 1Hz using `ps` to record RSS (resident set size). RSS measures physical memory pages in RAM but includes shared library pages and allocator overhead, so it does not perfectly reflect application footprint. Still, it provides a consistent cross-language metric. Memory sampling ran alongside GC telemetry:
 - *Go*: `GODEBUG=gctrace=1` environment variable enabled to capture GC pause times, frequencies, and memory reclamation patterns
 - *Java*: `-Xlog:gc*` JVM flag captured detailed garbage collection events including pause durations and generational collection statistics
 - *Rust*: No GC telemetry required due to deterministic memory management
@@ -288,19 +288,19 @@ Memory consumption was sampled at 1Hz using `ps` to record RSS (resident set siz
 == Data Analysis
 
 For each workload-language combination:
-+ Time-series data were aligned to a common start time across all 5 measurement runs.
-+ Statistical aggregation computed: mean throughput ± 95% CI, latency percentiles (P50/P90/P99) with confidence intervals, and peak memory consumption with variance.
-+ GC pause distributions were extracted from telemetry logs and visualized as histograms.
-+ RSS memory sampling limitations were assessed, including shared library pages and allocator arena effects that may not reflect true application memory usage.
-+ Comparative plots were generated showing: performance metrics with error bars, GC pause distributions, and memory consumption phases (fill vs. steady-state).
++ Time-series data from all 5 runs were aligned to a common start time.
++ Statistics were computed: mean throughput ± 95% CI, latency percentiles (P50/P90/P99) with confidence intervals, and peak memory with variance.
++ GC pause distributions were extracted from telemetry logs and plotted as histograms.
++ RSS limitations were noted—shared library pages and allocator arena effects can obscure true application memory usage.
++ Comparison plots were generated with error bars, GC pause distributions, and memory consumption phases (fill vs. steady-state).
 
-This analysis design enables both cross-language comparison with statistical significance testing and comprehensive GC behavior characterization to support performance claims with direct evidence rather than inference.
+This design supports both cross-language comparison with statistical significance testing and direct characterization of GC behavior, so performance claims rest on evidence rather than inference.
 
 = Results & Analysis
 
-This section presents the empirical findings of the benchmark experiments conducted on Linux servers (8 vCPU, 32GB RAM, Aliyun Tokyo region) across three workload groups: *Prime (compute-intensive)*, *Light (serialization)*, and *KV (allocation-heavy key-value store)*. For each workload, we compare throughput (requests per second), median latency (P50, ms), and memory consumption (RSS, GB) across Java, Go, and Rust implementations.
+This section presents the benchmark results from Linux servers (8 vCPU, 32GB RAM, Aliyun Tokyo region) across three workload groups: *Prime (compute-intensive)*, *Light (serialization)*, and *KV (allocation-heavy key-value store)*. For each workload, throughput (requests/second), median latency (P50, ms), and memory (RSS, GB) are compared across all three implementations.
 
-*Note on Service Stability*: During extended testing periods (10+ minutes), all implementations experienced service restarts due to resource constraints or stability issues. Performance metrics reflect stable operation periods, with restart behavior analyzed separately in @sec:stability-analysis.
+*Note on service stability*: During extended runs (10+ minutes), all implementations experienced service restarts due to resource constraints. The metrics here reflect stable operation periods; restart behavior is analyzed separately in @sec:stability-analysis.
 
 == Performance Summary
 
@@ -332,11 +332,11 @@ This section presents the empirical findings of the benchmark experiments conduc
   caption: [Performance comparison in Prime workload (compute-intensive) showing throughput, latency, and memory consumption over time. All services experience restarts around 400s due to stability issues, with Rust achieving highest throughput (~30k req/s) before restart, followed by Go (~20k req/s) and Java (~13k req/s).],
 ) <fig:prime-performance>
 
-The prime number benchmark revealed significant performance hierarchies and stability challenges. During stable operation periods (0-400s), Rust achieved the highest sustained throughput at approximately 30,000 requests per second, Go maintained around 20,000 req/s, while Java consistently operated at roughly 13,000 req/s—representing a 57% performance gap between Rust and Java.
+During stable operation (0–400s), Rust sustained the highest throughput at roughly 30,000 requests per second. Go held around 20,000 req/s, while Java sat at about 13,000 req/s—a 57% gap between Rust and Java.
 
-Memory consumption patterns showed Java requiring significantly more resources (5.8GB) compared to Go and Rust (4.0-4.2GB), suggesting JVM overhead even in compute-intensive scenarios. Critically, all implementations experienced service restarts around 400 seconds, indicating resource exhaustion or stability issues under sustained high-load conditions.
+Java consumed noticeably more memory (5.8GB) compared to Go and Rust (4.0–4.2GB), even in this compute-heavy scenario where allocation is minimal. All three implementations restarted around 400 seconds, pointing to resource exhaustion under sustained high load.
 
-The performance hierarchy persists in this minimal-allocation workload, suggesting that garbage collection is not the primary differentiator. Instead, the results highlight fundamental runtime characteristics: Rust's zero-cost abstractions, Go's efficient runtime, and Java's JVM overhead including object model costs and runtime safety mechanisms that impact even computation-heavy workloads.
+The performance ranking persists despite minimal allocation, which suggests garbage collection is not the main differentiator here. Instead, these numbers reflect more basic runtime characteristics: Rust's zero-cost abstractions, Go's lightweight runtime, and Java's JVM overhead including object model costs and safety mechanisms that affect even pure computation.
 
 == Light Workload: Serialization and Moderate Allocation
 
@@ -345,11 +345,11 @@ The performance hierarchy persists in this minimal-allocation workload, suggesti
   caption: [Performance comparison in Light workload (serialization tasks) showing throughput, latency, and memory patterns. Go and Rust achieve ~25k req/s during stable periods, while Java maintains ~13k req/s. Services experience restarts at different intervals: Java\@300s, Rust\@300s, Go\@450s, with Go showing extreme latency spikes during restart sequences.],
 ) <fig:light-performance>
 
-The Light workload, comprising echo, JSON serialization, and JSON-to-XML conversion tasks, revealed distinct performance patterns and varying stability characteristics. Go and Rust achieved substantially higher throughput during stable periods (~25,000 req/s) compared to Java's consistent ~13,000 req/s, maintaining the performance hierarchy observed in the Prime workload.
+The Light workload (echo, JSON serialization, JSON-to-XML conversion) showed a similar performance hierarchy but with different stability patterns. Go and Rust both reached about 25,000 req/s during stable periods, while Java stayed around 13,000 req/s.
 
-Memory consumption showed Java requiring the highest resources (5.8GB), while Go operated efficiently at 3.5GB and Rust at 4.2GB. Notably, service restart patterns varied significantly: Java and Rust experienced failures around 300 seconds, while Go demonstrated better stability lasting until 450 seconds before restart.
+Memory use followed the same ranking: Java at 5.8GB, Rust at 4.2GB, Go at 3.5GB. But the restart timing varied—Java and Rust failed around 300 seconds, while Go lasted until 450 seconds before restarting.
 
-A critical observation was Go's extreme latency degradation during restart sequences, showing spikes exceeding 200ms—highlighting the importance of graceful failure handling in production environments. The persistent performance gaps across workloads suggest that runtime architecture, rather than garbage collection overhead, primarily determines throughput characteristics under serialization workloads.
+One thing worth noting: Go showed extreme latency spikes during its restart sequences, exceeding 200ms. This matters for production systems where graceful degradation is expected. The throughput gaps across workloads continue to point at runtime architecture, not garbage collection, as the main factor.
 
 == KV Workload: Allocation-Heavy, Persistent State
 
@@ -358,39 +358,39 @@ A critical observation was Go's extreme latency degradation during restart seque
   caption: [Performance comparison in KV workload (allocation-heavy key-value operations) showing distinct prewarm phase (0-250s) with gradual memory growth, followed by stable measurement phase (250-600s) at ~8k req/s and ~2ms latency. Memory stabilizes at: Java 4.8GB, Rust 3.8GB, Go 3.6GB. Unlike other workloads, KV shows excellent stability with no service restarts.],
 ) <fig:kv-performance>
 
-The KV workload demonstrates allocation-heavy performance under sustained pressure with GET/SET/DELETE operations on a persistent key-value store using varied data patterns (200 bytes to 10KB).
+The KV workload tests allocation-heavy performance with GET/SET/DELETE operations on a persistent key-value store, using varied data sizes (200 bytes to 10KB).
 
-Results show two distinct phases:
+Two distinct phases emerged:
 
-*Prewarm Phase (0-250s)*: Memory growth to populate 6.4 million entries at ~2,500 req/s.
+*Prewarm phase (0–250s)*: Memory grew as 6.4 million entries were populated at ~2,500 req/s.
 
-*Measurement Phase (250-600s)*: Convergent performance across all languages:
+*Measurement phase (250–600s)*: All three languages converged:
 
-- *Throughput*: All languages achieve ~8,000 req/s with minimal variation
-- *Latency*: Consistent ~2ms median latency across implementations
+- *Throughput*: ~8,000 req/s across the board, with minimal variation
+- *Latency*: ~2ms median for all implementations
 - *Memory*: Java 4.8GB, Rust 3.8GB, Go 3.6GB
-- *Stability*: No service restarts observed during 600-second runs
+- *Stability*: No restarts during the full 600-second runs
 
-Unlike Prime/Light workloads, KV shows excellent stability with no restarts. Performance convergence challenges assumptions about GC overhead under allocation pressure, demonstrating modern collectors' efficiency. Phase separation validates prewarm methodology for fair stateful comparisons.
+This is the most interesting result. Unlike Prime and Light, the KV workload—the one with the heaviest allocation pressure—showed no meaningful performance difference between languages. Modern garbage collectors handled the allocation load without visible cost. The phase separation also validated the prewarm methodology for fair stateful comparisons.
 
 == Garbage Collection Telemetry Analysis
 
-Detailed analysis of GC telemetry logs revealed significant differences in collection strategies and performance characteristics between Go and Java implementations. Our comprehensive log analysis extracted 244 GC events from Go and 83 pause events from Java across multiple benchmark phases.#footnote[Complete analysis performed using custom log parsing scripts analyzing production GC telemetry from `GODEBUG=gctrace=1` (Go) and `-Xlog:gc*` (Java).]
+GC telemetry logs revealed how differently Go and Java handle collection. Custom log parsers extracted 244 GC events from Go and 83 pause events from Java across the benchmark phases.#footnote[Analysis performed using custom scripts parsing `GODEBUG=gctrace=1` (Go) and `-Xlog:gc*` (Java) telemetry.]
 
 === Go Concurrent Garbage Collector Analysis
 
-Go's tricolor concurrent mark-and-sweep collector demonstrated exceptionally consistent low-latency behavior:
+Go's tricolor concurrent mark-and-sweep collector showed remarkably consistent low-latency behavior:
 
 - *Pause Times*: Average 0.054ms, median 0.046ms, maximum 0.150ms
 - *GC Frequency*: 244 events across benchmark phases with 0.0 GCs/second frequency during steady state
 - *Memory Management*: Average heap size 776MB, peak 1,622MB
 - *Overhead*: 0.4% average GC overhead with >95% mutator utilization
 
-The analysis revealed distinct phases during benchmark execution, with the primary load phase (phase\_38) generating 209 GC events averaging 0.059ms each—demonstrating Go's ability to maintain ultra-low pause times even under sustained allocation pressure.
+The primary load phase (phase\_38) alone produced 209 GC events averaging 0.059ms each—Go kept pause times ultra-low even under sustained allocation pressure.
 
 === Java G1GC Generational Collector Analysis
 
-Java's G1 garbage collector employed a more complex generational strategy with concurrent and pause phases:
+Java's G1 collector used a more complex generational strategy with both concurrent and stop-the-world phases:
 
 - *Pause Times*: Average 3.213ms, median varies by collection type, maximum 15.943ms
 - *Collection Strategy*: 83 total pause events with 40 concurrent operations (0.5:1 concurrent:pause ratio)
@@ -399,7 +399,7 @@ Java's G1 garbage collector employed a more complex generational strategy with c
 
 === Comparative GC Performance Analysis
 
-Direct comparison of GC telemetry reveals fundamental algorithmic differences:
+Comparing the two collectors directly shows how different their strategies are:
 
 #figure(
   table(
@@ -419,149 +419,151 @@ Direct comparison of GC telemetry reveals fundamental algorithmic differences:
   caption: [Comparative GC performance metrics extracted from production telemetry logs showing Java pause times 59-106× longer than Go, while Go performs 2.9× more collections.],
 ) <tab:gc-comparison>
 
-These measurements provide direct empirical evidence that Go's frequent, ultra-low-latency collections (50-150μs) contrast sharply with Java's less frequent but longer pauses (3-16ms). The 59-106× difference in pause times validates Go's design philosophy of prioritizing latency over throughput optimization.#footnote[Statistical analysis performed on complete telemetry datasets: Go (n=244 events), Java (n=83 pause events + 40 concurrent events).]
+The numbers are striking: Go's frequent, tiny collections (50–150μs) look nothing like Java's less frequent but much longer pauses (3–16ms). The 59–106× difference in pause times is a direct consequence of Go's design choice to favor latency over throughput.#footnote[Statistical analysis from complete telemetry: Go (n=244 events), Java (n=83 pause events + 40 concurrent events).]
 
 #figure(
   image("../gc_pause_distribution.png", width: 90%),
   caption: [GC pause time distributions extracted from production telemetry logs (Go: n=244 events, Java: n=83 events) showing Go's consistent ultra-low latency (0.056ms average) versus Java's variable but longer pauses (3.977ms average). Error bars represent ±1 standard deviation. The 70-137× difference suggests distinct algorithmic strategies: Go prioritizes latency consistency while Java optimizes for throughput.],
 ) <fig:gc-pause-dist>
 
-These telemetry data provide direct evidence that modern garbage collectors introduce minimal application disruption, with pause times orders of magnitude below typical application response time requirements (1-10ms for web services).
+What matters for web services is whether these pauses affect users. With typical response times in the 1–10ms range, Go's sub-0.1ms pauses are invisible. Even Java's 3ms average pauses are usually below the noise floor—though its 16ms maximums could occasionally contribute to tail latency.
 
 == Memory Consumption Analysis
 
-Memory measurements used RSS (Resident Set Size) via 1Hz `ps` sampling, capturing total process memory including framework overhead and runtime systems. Prime and Light workloads showed significant baseline memory consumption: Java (5.8GB), Rust (4.2GB), and Go (2.9GB), reflecting JVM heap pre-allocation, runtime libraries, and framework initialization costs rather than workload-specific state. The KV workload showed distinct phases: fill phase (0-120s) where memory grew to approximately 0.9GB as 6.4M keys were inserted, then steady-state (120s+) with stable consumption. Theoretical calculation: 6.4M entries × approximately 150 bytes/entry (8-byte key + 8-byte value + hashmap overhead) ≈ 0.96GB, closely matching observed RSS values.
+RSS was measured via 1Hz `ps` sampling, so it captures everything: application state, framework overhead, and runtime systems. For Prime and Light, the baseline memory was large—Java (5.8GB), Rust (4.2GB), Go (2.9GB)—mostly reflecting JVM heap pre-allocation, runtime libraries, and framework initialization rather than workload state. The KV workload told a different story: memory grew during the fill phase (0–120s) to about 0.9GB as 6.4M keys were inserted, then leveled off. A back-of-envelope calculation (6.4M entries × ~150 bytes/entry for key + value + hashmap overhead ≈ 0.96GB) matches the observed RSS closely.
 
 == Cross-Workload Analysis
 
-Statistical analysis reveals three key patterns that challenge conventional assumptions about garbage collection performance:#footnote[All statistical tests performed with α=0.05, using Python scipy.stats. Sample sizes: n=5 runs per language-workload combination. Prerequisites verified: Shapiro-Wilk tests confirmed approximate normality (p>0.05) for parametric tests; Levene's test verified homogeneity of variance where required (p>0.05); Mann-Whitney U used when normality assumptions violated; effect sizes calculated using Cohen's conventions (small: d=0.2, medium: d=0.5, large: d>0.8). The extremely large effect sizes (e.g., d=22.1) reflect both substantial performance differences (2.3× throughput gap) and low between-run variance in the controlled cloud environment.]
+Three patterns emerge from the statistical analysis, and they challenge the conventional wisdom about GC performance:#footnote[All tests at α=0.05 using Python scipy.stats. n=5 runs per language-workload combination. Shapiro-Wilk confirmed approximate normality (p>0.05); Levene's test verified variance homogeneity where needed (p>0.05); Mann-Whitney U used when normality was violated; effect sizes use Cohen's conventions (small: d=0.2, medium: d=0.5, large: d>0.8). The very large effect sizes (e.g., d=22.1) reflect both real performance gaps (2.3× throughput) and low between-run variance in the controlled cloud environment.]
 
-+ *Workload-dependent performance characteristics*: Java's performance varied dramatically by workload type. In Prime workload, Java showed significantly lower throughput compared to Rust (Welch's t-test: t(8)=-31.2, p\<0.001, Cohen's d=22.1, very large effect size). However, in Light workload, one-way ANOVA found no significant difference between languages (F(2,12)=0.83, p=0.46, η²=0.12), demonstrating workload-specific performance patterns.
++ *Java's performance depends heavily on workload type*: In Prime, Java showed significantly lower throughput than Rust (Welch's t-test: t(8)=-31.2, p\<0.001, Cohen's d=22.1). But in Light, one-way ANOVA found no significant difference between languages (F(2,12)=0.83, p=0.46, η²=0.12). Same language, very different story.
 
-+ *Minimal garbage collection overhead*: Go consistently matched Rust's performance across all workloads. Repeated measures ANOVA across workloads showed no significant throughput differences (Go vs. Rust: F(1,12)=0.18, p=0.68, η²=0.015). Even Java showed comparable performance in allocation-intensive KV scenario (Mann-Whitney U test: U=10, p=0.89, Cliff's δ=0.08, negligible effect), contradicting expectations about GC penalties.
++ *GC overhead is smaller than expected*: Go consistently matched Rust across all workloads. Repeated measures ANOVA showed no significant throughput difference (Go vs. Rust: F(1,12)=0.18, p=0.68, η²=0.015). Even Java performed comparably in the allocation-heavy KV scenario (Mann-Whitney U: U=10, p=0.89, Cliff's δ=0.08), which is the opposite of what you'd expect if GC were the bottleneck.
 
-+ *Runtime overhead dominates GC overhead*: The largest performance gaps occurred in allocation-free Prime workload (Cohen's d=22.1), while allocation-heavy KV showed minimal differences (Cohen's d=0.28, small effect). Pearson correlation between allocation intensity and performance gap was negative (r=-0.94, p=0.002), indicating JVM runtime characteristics contribute more than garbage collection to performance variations.
++ *Runtime overhead matters more than GC overhead*: The biggest performance gaps appeared in the allocation-free Prime workload (Cohen's d=22.1), while allocation-heavy KV showed barely any difference (Cohen's d=0.28). The Pearson correlation between allocation intensity and performance gap is negative (r=-0.94, p=0.002)—the more allocation, the smaller the gap. JVM runtime characteristics, not garbage collection, drive the variation.
 
 == Algorithmic Trade-offs in Garbage Collection Design
 
-Telemetry analysis reveals fundamental design philosophy differences between concurrent collectors:#footnote[Analysis based on comprehensive GC log parsing of production benchmark runs, with complete methodology documented in supplementary analysis scripts.]
+The telemetry shows two genuinely different design philosophies at work:#footnote[Based on GC log parsing of the benchmark runs; methodology documented in supplementary analysis scripts.]
 
-- *Go's Low-Latency Strategy*: Tricolor concurrent mark-and-sweep prioritizes consistent response times through frequent micro-pauses (54μs average). The algorithm achieves its \<100μs target with 244 collections maintaining 0.4% overhead, validating the concurrent collection hypothesis for latency-critical applications.
+- *Go's approach*: Frequent micro-pauses (54μs average) through tricolor concurrent mark-and-sweep. With 244 collections at 0.4% overhead, Go hits its \<100μs target reliably. This works well for latency-sensitive applications where predictable response times matter more than peak throughput.
 
-- *Java's Throughput-Optimized Strategy*: G1GC balances latency and throughput through generational collection with longer but less frequent pauses (3.2ms average, 83 events). The algorithm achieves \<10ms target pauses while optimizing for large-heap efficiency, demonstrating effectiveness for throughput-oriented workloads.
+- *Java's approach*: G1GC runs fewer but longer pauses (3.2ms average, 83 events), balancing latency against throughput through generational collection. The \<10ms target pauses are adequate for throughput-oriented workloads, though the variance is higher.
 
-- *Allocation Pattern Responsiveness*: Go's memory management showed consistent behavior across allocation patterns (776MB average heap), while Java's approach scaled heap utilization (0.7% utilization of 24GB capacity) to match allocation pressure.
+- *Memory behavior*: Go's heap stayed consistent across allocation patterns (776MB average), while Java's G1GC used only 0.7% of its 24GB capacity, scaling utilization to match pressure.
 
-These findings suggest that the decision between garbage-collected and manually-managed languages should prioritize workload characteristics and runtime behavior over theoretical concerns about GC pause times, particularly given the efficiency of modern concurrent garbage collectors.
+The takeaway is that choosing between GC'd and manually-managed languages should depend on workload characteristics and runtime behavior, not on theoretical concerns about pause times. Modern concurrent collectors are better than their reputation.
 
 = Discussion
 
 == Research Process and Challenges
 
-Ensuring implementation consistency across languages presented the primary methodological challenge. Each language was implemented using mature web frameworks as described in §4.2: Axum for Rust, Chi for Go, and Spring Boot WebFlux for Java, with deliberately basic implementations to minimize framework-specific optimizations that could confound results.
+The hardest part was keeping implementations consistent across languages. Each service used a mature web framework (Axum for Rust, Chi for Go, Spring Boot WebFlux for Java) as described in §4.2, with deliberately minimal implementations to avoid framework-specific optimizations that would muddy the comparison.
 
-A critical challenge emerged during KV testing: higher throughput languages paradoxically showed higher memory usage due to silent SET operation failures. We introduced `/kv/stats` endpoints and retry logic, discarding runs failing consistency checks to ensure fair comparison with identical dataset sizes.
+An unexpected problem showed up during KV testing: higher-throughput languages had paradoxically higher memory usage because their SET operations were silently failing. The fix was adding `/kv/stats` endpoints and retry logic, then discarding any runs that failed consistency checks. Without this, the languages would have been working with different dataset sizes—an unfair comparison.
 
 == Critical Learning Through Research Evolution
 
-Key discoveries: Cloud migration eliminated environment biases; JVM warm-up separated compilation effects; Go's near-parity with Rust reframed efficiency questions; silent KV failures highlighted validation necessity; Java's workload dependence revealed runtime architecture often dominates GC overhead.
+Several things only became clear during the research itself: moving to cloud servers eliminated environment biases that skewed local results; the JVM warm-up phase turned out to be necessary for separating compilation effects from runtime effects; Go's near-parity with Rust was genuinely surprising and reframed the whole investigation; silent KV failures showed why validation is non-negotiable in benchmarking; and Java's wildly different performance across workloads made it clear that runtime architecture often matters more than garbage collection.
 
 == Service Stability Analysis <sec:stability-analysis>
 
-Extended 10-minute runs revealed workload-dependent stability patterns with significant production implications.
+Extended 10-minute runs revealed that stability depends on workload type, which has real production implications.
 
-*Restart Patterns*: Prime (all languages \@400s), Light (Java/Rust \@300s, Go \@450s), KV (no restarts).
+Restarts occurred at: Prime (all languages around 400s), Light (Java/Rust around 300s, Go around 450s), KV (no restarts).
 
-*Key Findings*: Memory footprint (Java 5.8GB vs others 3.5-4.2GB) showed no stability correlation. KV's highest memory usage (3.6-4.8GB) remained stable, suggesting allocation patterns matter more than absolute consumption. Go exhibited concerning 200ms latency spikes during Light workload restarts.
+Memory footprint (Java 5.8GB vs. others 3.5–4.2GB) did not predict stability—KV used the most memory (3.6–4.8GB) and was the most stable. Allocation patterns seem to matter more than absolute consumption. Go's 200ms latency spikes during Light restarts are also concerning for production use.
 
-Computational workloads (Prime/Light) triggered instability while allocation-heavy KV remained stable, indicating pattern-dependent resilience. These results emphasize that benchmarks must consider stability alongside throughput for realistic deployment guidance.
+The pattern is counterintuitive: computational workloads triggered instability while the allocation-heavy KV workload ran cleanly. Benchmarks that only report throughput miss this—stability under extended load is a separate axis that matters for deployment decisions.
 
 == Unexpected Findings and Performance Insights
 
-The results fundamentally challenge common assumptions about garbage collection performance impact. The most striking finding was the minimal performance difference between garbage-collected and manually-managed languages. Go consistently matched Rust across all scenarios (within 5% variation), while Java showed workload-dependent performance patterns.
+The results did not match expectations. The assumption going in was that garbage-collected languages would show a measurable performance penalty. What actually happened was more nuanced.
 
-Several insights emerge from these findings:
+Go consistently matched Rust across all scenarios, within 5% variation. That was the biggest surprise. Java's performance, meanwhile, was all over the map—terrible for compute-heavy Prime, competitive for Light and KV.
 
-- *Modern GC Efficiency*: Go's \<2% CPU overhead validates that concurrent collectors have achieved their theoretical promise of low-pause operation. Direct telemetry analysis confirms sub-millisecond pause times (average 0.054ms, P99: 0.150ms) are negligible for typical web services, representing a 1000× improvement over early stop-the-world collectors.
+A few specific observations:
 
-- *Runtime vs. GC Overhead*: Java's poor performance in the Prime workload despite minimal allocation indicates that JVM runtime characteristics—not garbage collection—create the primary performance bottleneck. Our GC telemetry shows Java's G1GC performed efficiently (3.2ms average pauses), yet application throughput remained 63% below competitors, suggesting that debates about GC performance may be addressing the wrong issue.
+- Go's \<2% CPU overhead confirms that concurrent collectors work as advertised. The telemetry shows sub-millisecond pauses (0.054ms average, max 0.150ms) that are negligible for web services. These collectors have come a long way from early stop-the-world implementations.
 
-- *Workload Sensitivity*: The dramatic variation in Java's performance (63% slower for Prime, competitive for Light/KV) demonstrates that language performance is highly context-dependent. General statements about language speed are therefore misleading.
+- Java's poor Prime performance (63% below competitors) despite minimal allocation suggests the JVM runtime itself—not garbage collection—is the bottleneck. Java's G1GC actually performed efficiently (3.2ms average pauses), but application throughput still lagged. The debate about GC performance may be targeting the wrong problem.
 
-- *Collection Strategy Validation*: The empirical evidence validates different GC design philosophies—Go's 244 frequent micro-collections (0.054ms average) prove superior for latency-sensitive applications, while Java's 83 longer pauses (3.2ms average) may benefit throughput-oriented scenarios despite our mixed results.
+- The variation in Java's results (63% slower for Prime, competitive for Light/KV) means general statements about language speed are misleading. Performance depends on what you are actually doing.
+
+- The empirical data supports both GC philosophies for their intended use cases: Go's 244 frequent micro-collections (0.054ms) work well for latency-sensitive applications, while Java's 83 longer pauses (3.2ms) trade latency for throughput.
 
 == Implications for Memory Management Theory
 
-Our findings have significant theoretical implications for garbage collection research and practice:
+These results have implications for how we think about garbage collection:
 
-*Generational Hypothesis Effectiveness*: Java's G1GC demonstrated low heap utilization (0.7%) despite 24GB capacity, suggesting that the generational hypothesis remains effective for reducing collection overhead in our workloads. However, the concurrent overhead (40 concurrent operations vs. 83 pause events) indicates significant background work that may not appear in pause-time measurements.
+Java's G1GC used only 0.7% of its 24GB heap capacity, which suggests the generational hypothesis (most objects die young) holds for these workloads. But the 40 concurrent operations alongside 83 pause events point to significant background work that pause-time measurements alone would miss.
 
-*Concurrent Collection Maturity*: Go's achievement of 0.054ms average pause times with 0.4% GC overhead represents the practical realization of concurrent collection theory developed over decades. The 59-106× lower pause times compared to Java validate the design choice to prioritize latency over complex generational optimizations.
+Go's 0.054ms average pauses at 0.4% overhead show what concurrent collection can achieve in practice. The 59–106× lower pause times compared to Java reflect a real design trade-off: Go gives up generational optimization for latency consistency, and the numbers say it works.
 
-*Manual vs. Automatic Trade-offs*: The near-identical performance between Rust and Go (typically \<5% variation) suggests that for many applications, the cognitive overhead of manual memory management may not be justified by performance gains. This finding challenges the assumption that manual control necessarily yields better performance.
+Perhaps most interesting: Go and Rust performed nearly identically (typically \<5% difference). For many applications, the extra complexity of manual memory management may not buy meaningful performance. This does not mean Rust's approach is wrong—there are domains where deterministic timing matters—but for typical web services, the performance argument for manual control looks weaker than commonly assumed.
 
 == Implications for Software Engineering Practice
 
-The minimal Go-Rust performance difference suggests choosing Rust purely for performance may not be justified. Rust's cognitive overhead can slow development while small performance gains may not warrant complexity costs. Java's variable performance indicates selection should be driven by specific requirements. A 5% difference means 21 servers instead of 20, but longer development may exceed infrastructure savings.
+The small Go-Rust performance gap suggests that choosing Rust purely for speed may not pay off. Rust's learning curve slows development, and a 5% throughput difference means 21 servers instead of 20—the extra engineering time might cost more than the extra hardware. Java's variable results suggest that language selection should be driven by the specific workload, not by general performance assumptions.
 
 == Methodological Considerations
 
-Our decision to use production frameworks rather than minimal implementations requires critical examination. This approach captures real-world performance including framework overhead, which developers cannot avoid in practice. However, it introduces a confounding variable: observed differences might reflect framework maturity rather than language characteristics.
+Using production frameworks instead of minimal implementations was a deliberate choice that deserves scrutiny. It means the results capture real-world overhead that developers cannot avoid, but it also means some observed differences might reflect framework maturity rather than language characteristics.
 
-We argue this trade-off is justified because:
+This trade-off seems worth it because:
 + Developers choose technology stacks, not bare languages
 + Framework performance is inseparable from language performance in practice
-+ Results are more actionable for practitioners making technology decisions
++ The results are more useful for practitioners making real decisions
 
-Nevertheless, this methodological choice means our results should be interpreted as ecosystem comparisons rather than pure language comparisons. Future research comparing minimal implementations would provide complementary insights.
+That said, these results are best read as ecosystem comparisons, not pure language comparisons. Testing with minimal implementations would complement this work.
 
 == Limitations and Future Work
 
-Several limitations warrant acknowledgment:
+Several limitations are worth acknowledging:
 
-- *Service stability under extended load*: All implementations experienced service restarts during 10-minute benchmark runs (Prime/Light workloads at 300-450s), limiting measurements to stable operation periods. Root cause investigation was beyond scope due to resource constraints; however, 300-400 second stable windows exceed typical microservice request lifecycles and provide sufficient data for comparative analysis.
+- All implementations restarted during 10-minute runs on Prime/Light workloads (300–450s). Investigating the root cause was beyond scope, but the 300–400 second stable windows still exceed typical microservice request cycles and give enough data for comparison.
 
-- *Measurement duration*: 10-minute runs may not reveal long-term GC behavior such as memory fragmentation or heap growth patterns that emerge over hours of operation.
+- 10-minute runs may miss long-term GC effects like memory fragmentation or heap growth that emerge over hours.
 
-- *Workload representativeness*: Synthetic workloads, while controlled, may not capture the full complexity of production applications with diverse request patterns and external dependencies.
+- Synthetic workloads, however controlled, cannot capture the full messiness of production applications with diverse request patterns and external dependencies.
 
-- *Single-environment testing*: Results from Aliyun Tokyo region may not generalize to other cloud providers or hardware configurations.
+- Results come from a single cloud region (Aliyun Tokyo) and may not generalize to other providers or hardware.
 
-- *Memory measurement granularity*: RSS measurements include shared library pages and allocator overhead, potentially obscuring true application memory footprint.
+- RSS includes shared library pages and allocator overhead, so it is an imperfect proxy for actual application memory use.
 
-Future research directions include: extended runtime periods (hours to days), porting real applications across languages, cold start performance analysis, energy consumption measurements, and developer productivity metrics to assess total cost of ownership.
+Useful follow-up work would include: longer runs (hours to days), porting real applications across languages, cold start analysis, energy consumption measurement, and developer productivity metrics.
 
 == Recommendations for Practice
 
-Recommendations: profile before choosing languages; prioritize developer productivity unless GC is a bottleneck; consider workload characteristics; design for change; invest in expertise over optimal selection.
+In practice: profile your application before choosing a language based on benchmarks; prioritize developer productivity unless GC is actually a measured bottleneck; match the language to the workload; design systems so the language can be swapped if needed; and invest in team expertise rather than chasing the theoretically optimal choice.
 
 == Concluding Reflection
 
-In our controlled environment with these specific workload categories, we observed minimal garbage collection performance penalties, suggesting that conventional concerns may be less relevant for similar application contexts. Our measurements indicate that modern concurrent collectors can achieve substantial efficiency under these experimental conditions. These findings suggest that for applications similar to our test scenarios, the trade-offs between manual memory management complexity and performance gains warrant careful consideration.
+In the controlled conditions tested here, garbage collection penalties were smaller than expected. Modern concurrent collectors handled allocation-heavy workloads without visible performance cost. For applications similar to these test scenarios, the trade-off between manual memory management complexity and marginal performance gains deserves more thought than it usually gets.
 
 = Conclusion
 
-This research evaluated the performance impact of garbage collection by comparing Rust (manual memory management), Go (concurrent GC), and Java (generational GC) across compute-intensive, serialization, and allocation-heavy workloads on Linux servers. Comprehensive analysis of production GC telemetry logs—including 244 Go collection events and 83 Java pause events—provides unprecedented empirical insight into modern garbage collection behavior under realistic conditions.
+This research compared Rust (manual memory management), Go (concurrent GC), and Java (generational GC) across compute-intensive, serialization, and allocation-heavy HTTP workloads on Linux servers. GC telemetry from 244 Go collection events and 83 Java pause events provided detailed empirical data on how modern collectors actually behave under realistic load.
 
-The experimental evidence reveals several key findings that challenge conventional assumptions about garbage collection overhead:
+The results went against several common assumptions:
 
-- *Minimal GC overhead in practice*: Go consistently matched Rust's performance across all workloads (typically within 5% variation), suggesting that modern concurrent garbage collectors may impose minimal runtime costs under the allocation patterns tested. Direct telemetry analysis confirms average pause times of 0.054ms with 0.4% total overhead.
+- Go matched Rust's performance across all workloads, typically within 5%. The telemetry confirms average pause times of 0.054ms at 0.4% total overhead—concurrent garbage collection, at least for Go, does not appear to cost much in practice.
 
-- *Runtime overhead dominates GC overhead*: Java's significant underperformance in allocation-free workloads (63% throughput reduction in Prime benchmark) indicates that JVM runtime characteristics contribute more to performance differences than garbage collection mechanisms. Java's G1GC operated efficiently (3.2ms average pauses) yet failed to achieve competitive application performance.
+- Java's biggest performance gap (63% lower throughput in Prime) occurred in the workload with the least allocation. Java's G1GC operated efficiently (3.2ms average pauses), yet the application still underperformed. The JVM runtime, not garbage collection, appears to be the limiting factor.
 
-- *Workload-dependent performance characteristics*: Language performance varied dramatically by workload type, with Java achieving competitive performance in I/O-bound scenarios despite poor computational performance, suggesting that application characteristics should drive language selection decisions.
+- Performance varied dramatically by workload. Java was competitive in I/O-bound scenarios despite poor computational performance. Language selection should be driven by what the application actually does.
 
-- *Efficient memory management across strategies*: All languages maintained remarkably low and stable memory footprints (0.9--1.0GB for 6.4M key-value pairs), indicating that both manual and automatic memory management approaches can be highly efficient in practice.
+- All languages kept memory usage low and stable for the KV workload (0.9–1.0GB for 6.4M key-value pairs). Both manual and automatic memory management can be efficient in practice.
 
-- *Algorithmic validation of GC design philosophies*: Empirical evidence suggests distinct approaches—Go's 59-106× lower pause times through frequent micro-collections indicate advantages for latency-critical applications, while Java's generational strategy shows effectiveness for throughput optimization despite longer individual pauses.
+- Go's 59–106× lower pause times suit latency-sensitive applications, while Java's generational approach trades latency for throughput. Both strategies work for their intended use cases.
 
-*Research Contribution*: This study provides the first comprehensive telemetry-based analysis of modern garbage collectors under controlled production-like conditions. The observed Go pause times of 0.054ms average—representing substantial improvement over early stop-the-world collectors—provides empirical support for concurrent collection research advances. The observed near-parity between garbage-collected Go and manually-managed Rust in our benchmarks suggests that performance arguments for manual memory management may be less decisive than commonly assumed, though application-specific evaluation remains essential.
+This study contributes a telemetry-based comparison of modern garbage collectors under controlled, production-like conditions. Go's 0.054ms average pause times represent a substantial improvement over early stop-the-world collectors, and the near-parity between Go and Rust suggests that performance arguments for manual memory management may carry less weight than commonly thought—though specific applications will always need their own evaluation.
 
-*Research Worthiness Validated*: This investigation proved worthy of investigation because it successfully challenged long-standing assumptions about garbage collection overhead using empirical evidence rather than theoretical speculation. The finding that Go achieved near-parity with Rust across all workloads (typically \<5% variation) fundamentally contradicts prevailing beliefs about GC performance penalties, while the comprehensive telemetry analysis provides unprecedented insight into modern concurrent collector behavior under production-realistic conditions. These results have immediate contemporary application for software engineering decision-making and clarify existing misconceptions that have influenced technology choices without empirical foundation.
+The investigation turned up results worth having. Go's near-parity with Rust across every workload contradicts what most developers assume about GC penalties, and the telemetry puts concrete numbers behind that claim. For engineering teams weighing language choices, these numbers are more useful than the folklore that currently informs most decisions.
 
-*Practical Implications*: These findings suggest that in our experimental context, garbage collection performance penalties were less pronounced than theoretical concerns might indicate, though generalization to diverse real-world applications requires further investigation. Developer productivity, ecosystem maturity, and specific workload requirements should be prioritized over assumptions about GC overhead when selecting programming languages for modern software systems. In our experimental scenarios, the cognitive overhead of manual memory management may not be justified by the marginal performance gains observed, though this assessment depends on specific application requirements.
+What does this mean for developers choosing languages? In these tests, garbage collection was not the bottleneck—not with modern concurrent collectors. Developer productivity, ecosystem quality, and workload fit mattered more. Manual memory management did not pay for itself in throughput, at least not for the web service workloads tested here. Other applications may tell a different story.
 
-Future research should investigate longer-running applications, memory-intensive workloads, and production deployment scenarios to further validate these findings across diverse operational contexts. Additionally, comprehensive analysis of developer productivity impacts would provide crucial insights for total cost of ownership calculations in technology selection decisions.
+Whether these findings hold more broadly remains to be seen. Longer runs, more diverse workloads, and studies on actual production deployments would help. So would measuring developer productivity—the true total cost of a language choice involves more than just request throughput.
 
 // Bibliography (excluded from word count by wordometer)
 #bibliography("references.bib", style: "ieee")
