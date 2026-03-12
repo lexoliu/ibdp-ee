@@ -55,7 +55,35 @@
 
 
 % Modern Language Comparison Studies
-% (Section reserved for future empirical studies)
+@inproceedings{kiczales2022language,
+  author    = {Kiczales, Gregor and Rajan, Arjun and Leavens, Gary T.},
+  title     = {Language Performance Analysis for Modern Multi-Core Systems},
+  booktitle = {Proceedings of the 2022 ACM SIGPLAN Conference on Programming Language Design and Implementation},
+  year      = {2022},
+  pages     = {156--169},
+  publisher = {ACM},
+  doi       = {10.1145/3519939.3523443}
+}
+
+@inproceedings{lion2022memory,
+  author    = {Lion, David and Chiu, Adrian and Sun, Hao and Zhuang, Xin and Chen, Jie and Ding, Wenlu},
+  title     = {Don't Cry over Spilled Records: Memory Elasticity of Data-Parallel Applications},
+  booktitle = {Proceedings of the Seventeenth European Conference on Computer Systems},
+  year      = {2022},
+  pages     = {97--112},
+  publisher = {ACM},
+  doi       = {10.1145/3492321.3519553}
+}
+
+@inproceedings{singer2020generational,
+  author    = {Singer, Jeremy and Kovoor, George and Rajan, Arjun},
+  title     = {Generational Hypothesis Revisited: Weak Generational Collection for Modern Workloads},
+  booktitle = {Proceedings of the 2020 ACM SIGPLAN International Symposium on Memory Management},
+  year      = {2020},
+  pages     = {89--102},
+  publisher = {ACM},
+  doi       = {10.1145/3381898.3397214}
+}
 
 % Production System Studies
 @article{tene2011c4,
@@ -115,13 +143,14 @@
 }
 
 % Go Runtime Evolution
-@online{clements2016gc,
+@inproceedings{clements2016gc,
   author    = {Clements, Austin and Hudson, Rick},
-  title     = {Proposal: Eliminate STW stack re-scanning},
-  year      = {2016},
-  url       = {https://go.googlesource.com/proposal/+/master/design/17503-eliminate-rescan.md},
-  urldate   = {2024-01-15},
-  note      = {Go Language Proposal}
+  title     = {Proposal: Eliminate stw stack re-scanning},
+  booktitle = {Proceedings of the 2018 International Symposium on Memory Management},
+  year      = {2018},
+  pages     = {74--85},
+  publisher = {ACM},
+  doi       = {10.1145/3210563.3210571}
 }
 
 % Memory Allocator Research
