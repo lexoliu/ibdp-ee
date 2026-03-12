@@ -146,7 +146,7 @@ The expensive part of memory management happens on the heap. Web servers allocat
 
 C and C++ leave heap lifetime to the programmer. `malloc` and `free` (or `new` and `delete`) are explicit. This gives full control but leads to a class of bugs that are hard to find and dangerous in production: memory leaks, dangling pointers, double frees, and use-after-free vulnerabilities. Multithreaded programs compound the problem because traditional allocators contend on shared structures @berger2000hoard.
 
-Rust takes a different approach to manual management. Its ownership system tracks which variable "owns" each allocation at compile time. When the owner goes out of scope, the allocation is freed automatically. The compiler rejects programs that would create dangling pointers or data races, so the bugs that plague C and C++ are eliminated before the program ever runs @jung2017rustbelt. The cost is a steeper learning curve and longer compile times.
+Rust takes a different approach to manual management. Its ownership system tracks which variable "owns" each allocation at compile time. When the owner goes out of scope, the allocation is freed automatically. The compiler rejects many programs that would create dangling references or data races, moving those checks to compile time instead of leaving them to testing or production failures @jung2017rustbelt. The trade-off is a stricter programming model and longer compile times.
 
 == Automatic memory management
 
@@ -154,7 +154,7 @@ Two automatic approaches exist. Reference counting tracks how many pointers refe
 
 Tracing garbage collectors work differently. They walk the heap from root references (stack variables and globals), mark everything reachable, and reclaim the rest. The simplest version is mark-and-sweep. Modern collectors add generational heaps (exploiting the observation that most objects die young) and concurrent marking (running alongside application threads to reduce pause times).
 
-Go's collector is a concurrent, non-generational mark-and-sweep. It uses tri-color marking with write barriers so it can trace the heap while the application is running. The design choice is explicit: Go prioritizes low latency over throughput, accepting more frequent collections in exchange for shorter pauses @clements2016gc.
+Go's collector is a concurrent, non-generational mark-and-sweep. It uses tri-color marking with write barriers so it can trace the heap while the application is running. The Go team's own guide is explicit about the trade-off: the runtime is tuned for low latency, even when that means giving up some throughput efficiency @goteam2023gcguide.
 
 Java's G1GC is a generational, region-based collector. It divides the heap into regions and collects young regions (where most allocations die quickly) more often than old regions. The default pause-time target is 200ms (`-XX:MaxGCPauseMillis`), though in practice pauses for well-sized heaps are much shorter @oracle2023gctuning. G1 also performs concurrent marking to identify garbage without stopping the application.
 
@@ -166,19 +166,21 @@ The trade-off is real: replacing manual memory bugs with automated collection me
 
 == GC theory and modern collectors
 
-GC theory goes back to @mccarthy1960lisp's work on Lisp, where garbage collection was invented to manage list structures. @wilson1992garbage later organized collectors into categories by traversal strategy (reference counting vs. tracing), timing (incremental vs. stop-the-world), and heap layout (generational vs. regional). These categories still structure the field.
+GC theory goes back to @mccarthy1960lisp's work on Lisp, where garbage collection was introduced for list-processing systems. @wilson1992garbage later laid out a taxonomy that is still useful: collectors can be grouped by traversal strategy, timing, and heap organization.
 
-Recent collector implementations have pushed pause times down by orders of magnitude. Oracle's ZGC @liden2018zgc and Red Hat's Shenandoah @flood2016shenandoah achieve sub-millisecond pauses on terabyte-sized heaps by performing compaction concurrently. @clements2016gc documented how Go's runtime reduced latency by eliminating stop-the-world stack re-scanning, trading throughput for predictable response times. Modern microservice workloads, with their short-lived request handlers, may stress collectors differently than traditional long-running applications.
+Recent collector work has focused less on raw throughput and more on keeping pauses short on large heaps. ZGC @liden2018zgc and Shenandoah @flood2016shenandoah both move major parts of collection and compaction off the stop-the-world path. Go's runtime documents a similar priority: short pauses matter enough that some throughput is intentionally traded away to get them @goteam2023gcguide.
 
 == Empirical performance studies
 
-Comparing languages fairly is hard because implementation quality and framework maturity vary even within a single language. Developer expertise and library choice can affect performance as much as the language itself. @kiczales2022language found that language choice impacted performance by up to 10× in multi-core systems, but implementation quality varied by 5× _within_ a single language. @lion2022memory showed garbage-collected languages consumed 2.5--3× more energy for computation-intensive tasks, but achieved parity for I/O-bound workloads.
+Comparing languages fairly is harder than it sounds. Results change with warm-up policy, repetition count, and the point where a run is treated as steady state. @kalibera2013rigorous argue that without careful experimental design, small reported differences may be measurement noise rather than real system effects.
 
-On the application side, @tene2011c4 found that most JVM applications have acceptable GC overhead when properly configured, and that problems usually come from misconfiguration rather than algorithmic limits. @wang2020microservices showed garbage-collected languages needed 20--30% more container memory than equivalent services for comparable performance in containerized deployments.
+That warning matters here because HTTP services mix CPU work, allocation, serialization, and framework overhead. A single micro-benchmark can miss that mix completely. This essay therefore uses several workloads instead of one synthetic test.
+
+On the runtime side, @tene2011c4 showed how far JVM collectors had moved toward concurrent compaction in production-oriented systems. The paper is not a survey of every managed runtime, but it is a useful reminder that modern GC design is no longer limited to simple stop-the-world collection.
 
 == Memory safety without GC
 
-@jung2017rustbelt formally verified that Rust's ownership system prevents data races while matching C++ performance. But Rust is not without cost: @astrauskas2020learning found teams need significant ramp-up time to become productive, and @emre2020adoption reported that while Rust adopters often cite performance gains, projects face real development-time overhead.
+@jung2017rustbelt formally verified key parts of Rust's safety story, showing that ownership and borrowing can support memory safety without a garbage collector. That does not make Rust effortless in practice. @astrauskas2020learning found that real Rust projects still rely on `unsafe` in a relatively small but important fraction of code, so some safety reasoning still remains with the programmer.
 
 == Gaps this research addresses
 
