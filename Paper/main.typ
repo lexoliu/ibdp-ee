@@ -1,10 +1,10 @@
-// Garbage Collection Overhead in HTTP Service Benchmarks
+// Performance Impact of Garbage Collection in Real-World Applications
 // IBDP Extended Essay - Computer Science
 
 #import "@preview/wordometer:0.1.5": word-count, total-words
 
 #set document(
-  title: "Garbage Collection Overhead in HTTP Service Benchmarks: Comparing Go, Java, and Rust",
+  title: "Performance Impact of Garbage Collection in Real-World Applications",
 )
 
 #set page(
@@ -47,11 +47,11 @@
   #align(center)[
     #v(3cm)
     #text(size: 24pt, weight: "bold")[
-      Garbage Collection Overhead in HTTP Service Benchmarks
+      Performance Impact of Garbage Collection in Real-World Applications
     ]
     #v(2cm)
     #text(size: 14pt, weight: "bold")[
-      To what extent does garbage collection affect throughput, latency, and memory consumption in HTTP services built with Go, Java, and Rust?
+      How do performance characteristics vary between GC and non-GC languages?
     ]
     #v(1.5cm)
     #text(size: 12pt)[
@@ -75,21 +75,21 @@
 
 = Introduction
 
-Programming languages handle memory differently. Languages like C and Rust require the programmer to manage heap memory explicitly. Garbage-collected languages like Java and Go automate that work: the runtime identifies unreachable objects and reclaims them. The conventional view is that this automation costs performance, and many engineering teams choose languages partly on that assumption.
+Different programming languages deal with memory in very different ways. In C and Rust, the programmer has to manage heap memory by hand. Java and Go take a different route -- their runtimes track which objects are still in use and clean up the rest automatically. The common assumption is that this automation makes programs slower, and a lot of engineering teams pick their language partly based on that belief.
 
-How much performance, exactly? That turns out to be hard to answer from existing literature. Most comparisons rely on micro-benchmarks like the Computer Language Benchmarks Game, or they conflate too many variables: different algorithms, different frameworks, different levels of developer optimization. Few studies try to separate garbage collection from other runtime costs like JIT compilation or framework overhead, and fewer still collect GC telemetry alongside application-level metrics.
+But how much slower, really? I tried to find a clear answer in the existing literature and could not. Most benchmarks out there are micro-benchmarks like the Computer Language Benchmarks Game, or they mix together too many variables at once -- different algorithms, different frameworks, different levels of programmer effort. Very few studies actually try to separate what garbage collection costs from other runtime overhead like JIT compilation or framework inefficiency, and almost none collect GC telemetry at the same time as application metrics.
 
-This essay measures the overhead by implementing the same HTTP service logic in Rust (ownership-based memory management), Go (concurrent GC), and Java (generational GC) using production web frameworks, then benchmarking all three under compute-intensive, serialization, and allocation-heavy workloads on cloud servers. The results reflect the combined effect of language runtime, framework, and memory management strategy. Isolating GC from those other factors would require bare-runtime comparisons that do not represent how developers actually deploy code, so the trade-off is deliberate and discussed in §6.
+For this essay, I implemented the same HTTP service logic in Rust (which uses ownership instead of GC), Go (concurrent GC), and Java (generational GC), all using production web frameworks. I then ran benchmarks across three workload types -- compute-intensive, serialization, and allocation-heavy -- on cloud servers. The numbers I got reflect everything together: runtime, framework, and memory management. Pulling GC apart from the other factors would mean testing bare runtimes with no framework, which is not how anyone actually deploys code. I made this trade-off on purpose and come back to it in §6.
 
-The research question is: *To what extent does garbage collection affect throughput, latency, and memory consumption in HTTP services built with Go, Java, and Rust?*
+The research question is: *How do performance characteristics vary between GC and non-GC languages?*
 
-This question matters because the choice between GC and non-GC languages is often made based on assumptions rather than measurements. If GC overhead is as large as commonly believed, it would justify the steeper learning curve and longer development time of languages like Rust. If it is small, that changes the calculus.
+I think this question matters because in practice, developers choose between GC and non-GC languages based on gut feeling more than evidence. If GC overhead really is as large as people assume, then it makes sense to invest in the steeper learning curve of something like Rust. But if the overhead is small, that whole argument falls apart.
 
 = Background
 
 == Stack and heap memory
 
-Most languages split memory between the stack and the heap. Stack frames hold local variables and vanish when a function returns. Heap allocations persist beyond function scope and need either explicit cleanup or a runtime that reclaims dead objects.
+Most languages divide memory into two regions: the stack and the heap. The stack is simple -- it holds local variables in frames that get created when a function is called and thrown away when it returns. The heap is where things get complicated. Heap-allocated objects live beyond the function that created them, so somebody or something has to decide when to free that memory.
 
 #figure(
   {
@@ -140,73 +140,73 @@ Most languages split memory between the stack and the heap. Stack frames hold lo
   caption: [Stack and heap memory layout in a typical program],
 ) <fig:memory-layout>
 
-The expensive part of memory management happens on the heap. Web servers allocate heap objects for every request (parsing buffers, response bodies, session data), so the question of how heap memory is reclaimed matters directly for HTTP service performance.
+For HTTP services, almost all the interesting memory activity happens on the heap. Every incoming request means the server allocates buffers for parsing, builds response objects, maybe stores session data. So how the heap gets cleaned up directly affects how well the service performs.
 
 == Manual memory management
 
-C and C++ leave heap lifetime to the programmer. `malloc` and `free` (or `new` and `delete`) are explicit. This gives full control but leads to a class of bugs that are hard to find and dangerous in production: memory leaks, dangling pointers, double frees, and use-after-free vulnerabilities. Multithreaded programs compound the problem because traditional allocators contend on shared structures @berger2000hoard.
+In C and C++, the programmer is responsible for heap memory. You call `malloc` and `free` (or `new` and `delete`) yourself. This gives you full control, but it also means you can get things wrong -- memory leaks if you forget to free, dangling pointers if you free too early, double frees, use-after-free bugs. These are some of the nastiest bugs in software because they are hard to reproduce and can cause security vulnerabilities. Threads make it even worse because multiple threads may fight over the same allocator @berger2000hoard.
 
-Rust takes a different approach to manual management. Its ownership system tracks which variable "owns" each allocation at compile time. When the owner goes out of scope, the allocation is freed automatically. The compiler rejects many programs that would create dangling references or data races, moving those checks to compile time instead of leaving them to testing or production failures @jung2017rustbelt. The trade-off is a stricter programming model and longer compile times.
+Rust handles things differently. Instead of making programmers remember to free memory, Rust's compiler tracks which variable "owns" each piece of heap data. When that variable goes out of scope, the memory is freed automatically. The compiler also refuses to compile code that would create dangling references or data races, catching those bugs before the program ever runs @jung2017rustbelt. The downside is that Rust's rules can feel restrictive, and the compiler is slower.
 
 == Automatic memory management
 
-Two automatic approaches exist. Reference counting tracks how many pointers refer to each object and frees it when the count reaches zero. This spreads cost across execution but cannot handle reference cycles (two objects pointing at each other never reach zero and leak). Python and Swift use reference counting as their primary strategy.
+There are two main automatic approaches. Reference counting keeps track of how many pointers point at each object and frees it once the count drops to zero. It spreads the cleanup cost over time, but it cannot deal with cycles -- if two objects point at each other, their counts never reach zero and the memory leaks. Python and Swift both use reference counting.
 
-Tracing garbage collectors work differently. They walk the heap from root references (stack variables and globals), mark everything reachable, and reclaim the rest. The simplest version is mark-and-sweep. Modern collectors add generational heaps (exploiting the observation that most objects die young) and concurrent marking (running alongside application threads to reduce pause times).
+Tracing garbage collectors work in a completely different way. They start from known "root" references -- things on the stack, global variables -- and follow every pointer they can reach. Anything they cannot reach is dead and gets reclaimed. The simplest form of this is mark-and-sweep. Modern collectors build on top of that with generational heaps (since most objects are short-lived) and concurrent marking (so the collector can run alongside the application instead of pausing it).
 
-Go's collector is a concurrent, non-generational mark-and-sweep. It uses tri-color marking with write barriers so it can trace the heap while the application is running. The Go team's own guide is explicit about the trade-off: the runtime is tuned for low latency, even when that means giving up some throughput efficiency @goteam2023gcguide.
+Go uses a concurrent, non-generational mark-and-sweep collector. It does tri-color marking with write barriers, which lets it trace the heap while the program keeps running. The Go team is quite open about their design choice: they prioritize low latency over raw throughput, and they are willing to give up some efficiency to keep pauses short @goteam2023gcguide.
 
 Java's G1GC is a generational, region-based collector. It divides the heap into regions and collects young regions (where most allocations die quickly) more often than old regions. The default pause-time target is 200ms (`-XX:MaxGCPauseMillis`), though in practice pauses for well-sized heaps are much shorter @oracle2023gctuning. G1 also performs concurrent marking to identify garbage without stopping the application.
 
 == The cost of garbage collection
 
-The trade-off is real: replacing manual memory bugs with automated collection means accepting brief pauses, extra heap space, and CPU cycles spent finding dead objects. But the magnitude of that cost in real applications is an empirical question, not a theoretical one. That is what the rest of this essay investigates.
+There is a real trade-off here. By automating memory cleanup, GC languages eliminate a whole class of manual memory bugs, but in return the program has to accept short pauses, extra heap space, and CPU time spent looking for dead objects. The question is: how big are those costs in a real application? That is an empirical question, and it is what the rest of this essay tries to answer.
 
 = Literature review
 
 == GC theory and modern collectors
 
-GC theory goes back to @mccarthy1960lisp's work on Lisp, where garbage collection was introduced for list-processing systems. @wilson1992garbage later laid out a taxonomy that is still useful: collectors can be grouped by traversal strategy, timing, and heap organization.
+The idea of garbage collection is older than most people think -- it goes back to @mccarthy1960lisp's work on Lisp in 1960, where it was invented to handle list structures. @wilson1992garbage later wrote a survey that organized collectors into categories by how they traverse the heap, when they pause, and how they lay out memory. Those categories are still the standard way people talk about GC.
 
-Recent collector work has focused less on raw throughput and more on keeping pauses short on large heaps. ZGC @liden2018zgc and Shenandoah @flood2016shenandoah both move major parts of collection and compaction off the stop-the-world path. Go's runtime documents a similar priority: short pauses matter enough that some throughput is intentionally traded away to get them @goteam2023gcguide.
+More recently, collector designers have been focused on getting pause times down rather than maximizing throughput. ZGC @liden2018zgc and Shenandoah @flood2016shenandoah both moved the expensive parts of collection off the stop-the-world path, so pauses stay short even with very large heaps. Go's runtime team made a similar bet: they documented that they would rather have short pauses than maximum throughput @goteam2023gcguide.
 
 == Empirical performance studies
 
-Comparing languages fairly is harder than it sounds. Results change with warm-up policy, repetition count, and the point where a run is treated as steady state. @kalibera2013rigorous argue that without careful experimental design, small reported differences may be measurement noise rather than real system effects.
+Comparing programming languages fairly turns out to be really hard. Results depend on warm-up policy, how many times you repeat a run, and where you decide steady state begins. @kalibera2013rigorous made the point that without careful experimental design, small differences in benchmarks might just be noise rather than real effects.
 
-That warning matters here because HTTP services mix CPU work, allocation, serialization, and framework overhead. A single micro-benchmark can miss that mix completely. This essay therefore uses several workloads instead of one synthetic test.
+This matters for my essay because HTTP services are not pure computation -- they mix CPU work, allocation, serialization, and framework overhead all together. A single micro-benchmark would miss that mix. That is why I use three different workloads instead of one.
 
-On the runtime side, @tene2011c4 showed how far JVM collectors had moved toward concurrent compaction in production-oriented systems. The paper is not a survey of every managed runtime, but it is a useful reminder that modern GC design is no longer limited to simple stop-the-world collection.
+@tene2011c4 showed how far JVM collectors had come with concurrent compaction in production systems. It is not a comprehensive survey, but it is a good reminder that modern GC is nothing like the simple stop-the-world collectors from textbooks.
 
 == Memory safety without GC
 
-@jung2017rustbelt formally verified key parts of Rust's safety story, showing that ownership and borrowing can support memory safety without a garbage collector. That does not make Rust effortless in practice. @astrauskas2020learning found that real Rust projects still rely on `unsafe` in a relatively small but important fraction of code, so some safety reasoning still remains with the programmer.
+@jung2017rustbelt formally proved that Rust's ownership and borrowing model can guarantee memory safety without needing a garbage collector. That said, using Rust is not exactly effortless. @astrauskas2020learning found that real-world Rust codebases still use `unsafe` in a small but significant portion of their code, which means the programmer still has to reason about safety in those parts.
 
 == Gaps this research addresses
 
-Most studies compare bare language runtimes and ignore framework overhead, which matters because no one deploys bare runtimes in production. Previous comparisons often test a single workload type, making it impossible to see how GC overhead varies with allocation pressure. Most comparative studies also predate recent collector improvements like ZGC and Go 1.19+. This study uses production frameworks across three workload categories to produce numbers that are closer to what developers encounter when building actual services.
+Most existing studies compare bare language runtimes without any framework, but nobody deploys code that way. Previous comparisons also tend to test just one type of workload, so you cannot tell whether GC overhead changes when allocation pressure goes up. And many of the older studies were done before recent improvements like ZGC and Go 1.19+. This study tries to fill those gaps by using production frameworks and testing across three workload categories, which should give numbers closer to what a developer would actually see.
 
 = Methodology <sec:methodology>
 
 == Experimental setup
 
-Three languages with different compilation and memory management strategies were compared:
+I compared three languages that handle compilation and memory management differently:
 
 - *Rust*: AOT-compiled, ownership-based memory management (no GC), used as the performance baseline
 - *Go*: AOT-compiled with concurrent garbage collection, separating GC overhead from JIT effects
 - *Java*: JIT-compiled with G1 generational garbage collection
 
-Production frameworks were used: Axum (Rust), Chi (Go), Spring Boot WebFlux (Java). The goal was to measure language-plus-ecosystem performance, since developers pick technology stacks, not bare languages. Framework overhead is part of the measurement. This is a deliberate choice discussed further in §6.
+I used production frameworks for each language: Axum for Rust, Chi for Go, and Spring Boot WebFlux for Java. The point was to measure what you actually get when you pick a technology stack, not what the language can do in isolation. Framework overhead is baked into these numbers, and I think that is the right choice since real developers ship code with frameworks. I discuss this further in §6.
 
 == Runtime configuration
 
-Default configurations were used throughout: Java (OpenJDK 21) with G1 auto-tuning @oracle2023gctuning, Go (1.22) with GOGC=100 @goteam2023gcguide, Rust (1.80) with ownership-based management @rustteam2023ownership. No language-specific tuning was applied, which reflects how most applications are deployed in practice.
+I kept default configurations for everything: Java (OpenJDK 21) with G1 auto-tuning @oracle2023gctuning, Go (1.22) with GOGC=100 @goteam2023gcguide, Rust (1.80) with ownership-based management @rustteam2023ownership. I did not do any language-specific tuning, since most real applications are deployed with defaults anyway.
 
-The test environment used two Aliyun ECS instances in the same security group in Tokyo Zone C: an ecs.g7.2xlarge (8 vCPU, 32 GiB) hosting the services and an ecs.c7nex.xlarge (4 vCPU, 8 GiB) running load generation, both on Ubuntu 22.04 with ESSD cloud disks (PL1, 80 GiB, 5800 IOPS). Separating the load generator from the service under test prevents them from competing for CPU.
+The tests ran on two Aliyun ECS instances in the same security group in Tokyo Zone C. The service ran on an ecs.g7.2xlarge (8 vCPU, 32 GiB) and load generation ran on a separate ecs.c7nex.xlarge (4 vCPU, 8 GiB). Both used Ubuntu 22.04 with ESSD cloud disks (PL1, 80 GiB, 5800 IOPS). I put the load generator on a separate machine so it would not compete with the service for CPU.
 
 == Workload design
 
-Three workload categories were chosen to vary the amount of heap allocation:
+I picked three workload categories that put different amounts of pressure on heap allocation:
 
 #figure(
   table(
@@ -223,25 +223,25 @@ Three workload categories were chosen to vary the amount of heap allocation:
   caption: [Workload categories and their characteristics.],
 ) <tab:workloads>
 
-Prime does almost no heap allocation: it just computes whether a number is prime. Light allocates moderately through JSON serialization and XML conversion. KV allocates heavily, maintaining an in-memory key-value store with data sizes from 200 bytes to 10 KB. If garbage collection imposes a throughput cost, the cost should grow from Prime to KV.
+Prime barely touches the heap -- it just checks whether a number is prime. Light does moderate allocation through JSON serialization and XML conversion. KV is the heavy one: it maintains an in-memory key-value store with values ranging from 200 bytes to 10 KB. My reasoning was that if GC really costs throughput, the cost should get bigger as we move from Prime to KV.
 
-The KV workload uses a dedicated prewarm phase (0--250s) to populate the key-value store before measurement begins (250--600s). This ensures all three languages start the measurement phase with a comparable dataset. Without prewarm, higher-throughput languages would insert more keys, making memory comparisons unfair.
+The KV test has a dedicated prewarm phase (0--250s) where the key-value store gets populated before I start measuring (250--600s). This way all three languages begin the actual measurement with roughly the same number of keys. Without this, whichever language is fastest would insert more keys during the test, and that would mess up the memory comparison.
 
 == Load generation and metrics
 
-Load was generated using the `k6` framework with 64 virtual users for 10 minutes per run. Each language-workload combination was run once on the cloud servers. An initial warm-up run was performed and discarded to allow Java's JIT compiler to optimize hot paths.
+I used the `k6` load testing framework with 64 virtual users, running each test for 10 minutes. Each language-workload combination was run once on the cloud servers. Before the actual run, I did a warm-up run and threw it away so Java's JIT compiler could optimize its hot paths.
 
-Each run produced per-second time-series data: throughput (from `http_reqs`), latency percentiles (P50, P90, P99 from `http_req_duration`), and failure rate (`http_req_failed`). Memory (RSS) was sampled at 1 Hz using `ps`. GC telemetry was collected via `GODEBUG=gctrace=1` for Go and `-Xlog:gc*` for Java.
+Each run gave me per-second time-series data: throughput (from `http_reqs`), latency percentiles (P50, P90, P99 from `http_req_duration`), and failure rate (`http_req_failed`). I also sampled memory (RSS) every second using `ps`, and collected GC logs via `GODEBUG=gctrace=1` for Go and `-Xlog:gc*` for Java.
 
 == Data analysis
 
-For each workload-language combination, time-series data was analyzed for steady-state behavior. Steady-state windows were identified by excluding periods after service crashes (where throughput dropped to near zero). GC pause distributions were extracted from telemetry logs and plotted as histograms.
+For each language-workload pair, I looked at the time-series data to find the steady-state window. I identified steady state by cutting out periods after service crashes (where throughput fell to basically zero). I also pulled GC pause distributions from the telemetry logs and plotted them as histograms.
 
-Because the data comes from a single run per combination, the results are reported as observed values. There are no confidence intervals and no statistical significance tests. This is a limitation discussed in §6.
+Since I only have one run per combination, the results are just point observations. There are no confidence intervals or significance tests. I acknowledge this as a limitation in §6.
 
 = Results and analysis
 
-This section reports benchmark results from the Aliyun servers (8 vCPU, 32 GB RAM). For each workload, throughput, median latency, and RSS memory are compared across implementations. All numbers come from the per-second CSV time-series, averaged over each steady-state window.
+What follows are the benchmark results from the Aliyun servers (8 vCPU, 32 GB RAM). For each workload I compare throughput, median latency, and RSS memory across the three implementations. All numbers come from the per-second CSV time-series, averaged over each steady-state window.
 
 == Performance summary
 
@@ -273,13 +273,13 @@ This section reports benchmark results from the Aliyun servers (8 vCPU, 32 GB RA
   caption: [Prime workload over time. Go and Rust crash around 100s. Java runs the full 600s at lower but steady throughput.],
 ) <fig:prime-performance>
 
-Rust averaged 30,833 req/s during its stable window (10--102s), Go averaged 29,180 req/s (10--103s), and Java held steady at 11,451 req/s over the full 600 seconds. The Rust-to-Java throughput ratio is 2.7:1.
+During its stable window (10--102s), Rust averaged 30,833 req/s. Go was close at 29,180 req/s (10--103s). Java was much lower at 11,451 req/s but ran steadily for the full 600 seconds. That puts the Rust-to-Java throughput ratio at 2.7:1.
 
-Java's median latency was 5.16ms, well above Go's 1.86ms and Rust's 1.77ms. Java also used more memory (5.7 GB vs. 4.1--4.2 GB for the others), which reflects JVM heap pre-allocation even in a workload that barely touches the heap.
+Java's median latency was 5.16ms, noticeably higher than Go's 1.86ms and Rust's 1.77ms. Java also used more memory (5.7 GB vs. 4.1--4.2 GB for the others). That extra memory comes from JVM heap pre-allocation, which happens even though this workload barely touches the heap.
 
-Go and Rust both crashed around 102--103 seconds into the run. Java, despite lower throughput, ran for the full 10 minutes without interruption. The cause of the Go/Rust crashes was not investigated and is discussed as a limitation in §6. But the pattern is worth noting: the services producing the highest throughput were also the ones that crashed earliest.
+Go and Rust both crashed around 102--103 seconds in. Java, despite being slower, ran the entire 10 minutes without any interruption. I did not investigate what caused the crashes and discuss this as a limitation in §6. But it is interesting that the fastest services were the ones that crashed first.
 
-Since Prime involves minimal heap allocation, the throughput gap between Java and the others likely reflects JVM runtime overhead (object model, safety checks, interpreter-to-JIT transition) rather than garbage collection cost. This is the workload where GC should matter _least_, and it is also where the performance gap is _largest_, which supports the hypothesis that runtime characteristics, not GC, drive the difference.
+Since Prime does almost no heap allocation, the throughput gap between Java and the others probably comes from JVM runtime overhead -- the object model, safety checks, interpreter-to-JIT warm-up -- not from garbage collection. This is the workload where GC should matter _least_, and yet the performance gap is _largest_. That supports the idea that runtime characteristics, not GC, are driving the difference.
 
 == Light workload: serialization and moderate allocation
 
@@ -288,11 +288,11 @@ Since Prime involves minimal heap allocation, the throughput gap between Java an
   caption: [Light workload. All three languages reach similar throughput (~18k req/s) during stable periods.],
 ) <fig:light-performance>
 
-All three languages performed within 4% of each other: Java at 18,733, Rust at 18,403, and Go at 18,088 req/s. Median latencies were also nearly identical (1.66--1.71ms). The performance hierarchy from Prime vanished entirely.
+All three languages landed within 4% of each other: Java at 18,733, Rust at 18,403, and Go at 18,088 req/s. Median latencies were almost the same too (1.66--1.71ms). The huge performance gap from Prime just vanished.
 
-This was the result I least expected. Java, 63% behind in Prime, pulled even with Go and Rust once the workload shifted to serialization. One possible explanation is that Java's optimized serialization libraries (Jackson, Spring WebFlux's reactive pipeline) offset its runtime overhead, or that serialization is I/O-bound enough to equalize all three. Either way, the data shows that Java's deficit in Prime does not generalize.
+I genuinely did not expect this result. Java was 63% behind in Prime, and then it pulled completely even once the workload shifted to serialization. One explanation could be that Java's serialization libraries (Jackson, Spring WebFlux's reactive pipeline) are mature enough to offset the runtime overhead. Or maybe serialization is just I/O-bound enough that all three languages hit the same ceiling. Either way, Java's poor showing in Prime clearly does not generalize.
 
-All three crashed during the run (Java at 173s, Go at 180s, Rust at 182s), giving roughly equal stable windows. Memory followed the same pattern as Prime: Java at 5.7 GB, Go and Rust at 4.1 GB.
+All three crashed during the run (Java at 173s, Go at 180s, Rust at 182s), so they had roughly equal stable windows. Memory was the same pattern as Prime: Java around 5.7 GB, Go and Rust at 4.1 GB.
 
 == KV workload: allocation-heavy, persistent state
 
@@ -301,21 +301,21 @@ All three crashed during the run (Java at 173s, Go at 180s, Rust at 182s), givin
   caption: [KV workload showing prewarm phase (0--250s) with memory growth, then stable measurement phase (250--600s) at ~8k req/s.],
 ) <fig:kv-performance>
 
-The KV workload uses GET/SET/DELETE operations on an in-memory key-value store with data sizes from 200 bytes to 10 KB. Two phases were visible in the data.
+This test uses GET/SET/DELETE operations on an in-memory key-value store with values from 200 bytes to 10 KB. The data clearly showed two phases.
 
-During prewarm (0--250s), keys were populated at roughly 2,800--2,900 req/s, totaling about 720,000 requests across the prewarm window. During the measurement phase (250--600s), the three languages converged: throughput at 7,859--7,966 req/s, median latency at 2.17--2.18ms. No crashes occurred in the full 600 seconds.
+During prewarm (0--250s), keys were being inserted at roughly 2,800--2,900 req/s, around 720,000 requests total across the window. Once measurement started (250--600s), all three languages converged: throughput was 7,859--7,966 req/s, median latency 2.17--2.18ms. Nothing crashed in the full 600 seconds.
 
-Peak RSS was Java 4.9 GB, Rust 4.1 GB, Go 3.4 GB. These are total process RSS values (including runtime baseline, framework overhead, and the actual key-value data). The memory growth during prewarm reflects keys being loaded; the cross-language spread reflects differences in runtime baseline rather than workload-specific allocation.
+Peak RSS was Java 4.9 GB, Rust 4.1 GB, Go 3.4 GB. These are total process RSS numbers, so they include the runtime baseline, framework overhead, and the actual key-value data. The memory growth during prewarm is just keys being loaded. The spread between languages mostly comes from different runtime baselines, not from the workload data itself.
 
-This is the workload that should stress garbage collectors the most, since every request creates and destroys heap objects. That all three languages converged to nearly identical throughput suggests the GC overhead for this kind of workload is too small to measure against framework and I/O overhead.
+This is the workload that should stress garbage collectors the hardest, because every request creates and destroys heap objects. And yet all three languages ended up at virtually the same throughput. To me, that suggests the GC overhead is just too small to show up against the framework and I/O costs.
 
 == Garbage collection telemetry
 
-GC telemetry logs were parsed from the Go and Java runs. Go produced 244 GC events; Java produced 83 pause events and 40 concurrent operations.#footnote[Parsed from `GODEBUG=gctrace=1` (Go) and `-Xlog:gc*` (Java) output using custom scripts.]
+I parsed GC telemetry logs from the Go and Java runs. Go had 244 GC events; Java had 83 pause events plus 40 concurrent operations.#footnote[Parsed from `GODEBUG=gctrace=1` (Go) and `-Xlog:gc*` (Java) output using custom scripts.]
 
-Go's collector paused for 0.054ms on average (median 0.046ms, max 0.150ms), with 0.4% reported GC time. The primary load phase alone accounted for 209 of the 244 events, averaging 0.059ms each. Go collects frequently (244 events) but briefly (sub-0.1ms).
+Go's collector paused for 0.054ms on average (median 0.046ms, max 0.150ms), spending only 0.4% of total time on GC. The primary load phase alone accounted for 209 of the 244 events, averaging 0.059ms each. So Go collects very often (244 times) but each collection is extremely brief -- under 0.1ms.
 
-Java's G1GC paused for 3.213ms on average (max 15.943ms), with 83 stop-the-world events and 40 concurrent operations. Each collection freed roughly 745 MB on average. The JVM was configured with a 4 GB minimum heap and 24 GB maximum capacity.
+Java's G1GC paused for 3.213ms on average (max 15.943ms), with 83 stop-the-world events and 40 concurrent operations. Each collection freed around 745 MB on average. The JVM had a 4 GB minimum heap and 24 GB maximum capacity.
 
 #figure(
   table(
@@ -338,91 +338,91 @@ Java's G1GC paused for 3.213ms on average (max 15.943ms), with 83 stop-the-world
   caption: [GC pause time distributions. Go: n=244 events, Java: n=83 events.],
 ) <fig:gc-pause-dist>
 
-Go's pauses (50--150 μs) are roughly 60× shorter than Java's (3--16ms). This reflects a real design trade-off: Go's non-generational collector sacrifices throughput for predictable latency, while Java's G1GC batches work into fewer, longer pauses to reduce total overhead. For HTTP services with typical response times of 1--10ms, Go's pauses are invisible. Java's 3ms average is usually below the noise floor of network latency, though its 16ms maximum could occasionally show up in P99 tail latency.
+Go's pauses (50--150 μs) are about 60× shorter than Java's (3--16ms). This is a genuine design trade-off in action: Go's non-generational collector gives up some throughput to keep latency predictable, while Java's G1GC batches work into fewer but longer pauses to reduce total overhead. In practice, for HTTP services where response times are typically 1--10ms, Go's pauses are basically invisible. Java's 3ms average is usually lost in network noise too, though the 16ms max could occasionally bump up P99 tail latency.
 
 == Memory consumption
 
-RSS was measured via 1 Hz `ps` sampling. It captures everything: application state, framework overhead, runtime systems, and shared libraries. For Prime and Light, baseline memory was large (Java 5.7 GB, Go/Rust ~4.1 GB), reflecting JVM heap pre-allocation and runtime initialization rather than workload state. Neither Prime nor Light retains much data between requests.
+I measured RSS via 1 Hz `ps` sampling, which captures everything -- application state, framework overhead, the runtime itself, shared libraries. For Prime and Light, baseline memory was high across the board (Java 5.7 GB, Go/Rust around 4.1 GB). This is mostly runtime initialization and JVM heap pre-allocation rather than actual workload data, since neither Prime nor Light holds much state between requests.
 
-The KV workload told a different story. Go's RSS grew from near zero to 3.4 GB as keys were inserted. Java started higher (due to JVM pre-allocation) and reached 4.9 GB. Rust grew to 4.1 GB. All values are total process RSS. The cross-language variation in KV memory reflects different runtime baselines added to roughly similar workload data.
+KV was a different story. Go's RSS climbed from near zero to 3.4 GB as keys were loaded in. Java started higher because of JVM pre-allocation and ended up at 4.9 GB. Rust grew to 4.1 GB. The differences between languages in KV memory are mostly from their different runtime baselines sitting on top of roughly the same amount of workload data.
 
 == Cross-workload patterns
 
-Three patterns stand out when comparing across workloads:
+Looking across all three workloads, three things stood out to me:
 
-+ Java's throughput varied sharply by workload: 63% below Rust in Prime, but within 2% of Go and Rust in Light, and within 1% in KV. A blanket claim like "Java is slow" would be accurate for one workload and wrong for the other two.
++ Java's throughput swung wildly depending on the workload: 63% below Rust in Prime, but within 2% in Light and 1% in KV. If someone told you "Java is slow," they would be right about Prime and wrong about everything else.
 
-+ Go and Rust were close in Prime (5.4% gap) and essentially identical in Light and KV. Whatever overhead Go's garbage collector adds, it was not visible in throughput at this measurement granularity.
++ Go and Rust were close in Prime (5.4% gap) and basically identical in Light and KV. Whatever overhead Go's GC adds, it did not show up in throughput at this level of measurement.
 
-+ The largest throughput gap appeared in the workload with the least allocation (Prime), while the most allocation-heavy workload (KV) showed no gap. If garbage collection were the main bottleneck, the pattern should be reversed. This points to JVM runtime characteristics as the primary source of Java's deficit.
++ The biggest throughput gap was in the workload with the _least_ allocation (Prime), and the most allocation-heavy workload (KV) had _no_ gap. If garbage collection were really the bottleneck, you would expect the opposite pattern. This points toward JVM runtime overhead, not GC, as the main reason Java fell behind in Prime.
 
 = Discussion
 
 == Research process and challenges
 
-Keeping implementations consistent across languages was the main challenge. Each service used minimal code on top of its framework (Axum, Chi, Spring Boot WebFlux) to avoid framework-specific optimizations. The implementations share the same endpoint structure and the same algorithmic logic.
+The hardest part of this project was keeping the three implementations consistent. Each service sits on top of its framework (Axum, Chi, Spring Boot WebFlux) with as little custom code as possible, so I would not accidentally optimize one version more than the others. All three share the same endpoint structure and the same algorithms.
 
-An early lesson was that the test environment matters more than expected. Initial results collected on a local MacBook Pro (M2 Max) showed different performance rankings than the cloud servers, presumably because the M2's unified memory architecture and ARM cores interact differently with each runtime. Moving to x86 cloud instances with dedicated resources gave more reproducible numbers and eliminated the confounding effect of background processes competing for resources on a development machine.
+One thing I learned early on is that the test environment makes a huge difference. My first round of results was collected on my MacBook Pro (M2 Max), and the performance rankings were completely different from the cloud results. I think the M2's unified memory and ARM cores interact with each runtime differently. Once I moved to x86 cloud instances with dedicated resources, the numbers became much more consistent and I did not have to worry about background processes on my laptop interfering.
 
-An unexpected problem appeared during KV testing. Higher-throughput languages showed paradoxically higher memory because their SET operations were silently failing. Without noticing this, I would have been comparing languages working with different dataset sizes. Adding `/kv/stats` endpoints and retry logic caught and fixed the problem. This experience reinforced why benchmarks need validation beyond just throughput numbers.
+I also ran into an unexpected problem during KV testing. Languages with higher throughput were showing paradoxically higher memory usage. It turned out their SET operations were silently failing, so they were actually working with fewer keys. If I had not caught this, I would have been comparing languages against different dataset sizes without realizing it. I added `/kv/stats` endpoints and retry logic to fix it. That experience really drove home why benchmarks need more validation than just looking at throughput.
 
 == Stability analysis <sec:stability-analysis>
 
-The crash patterns were not what I expected. In Prime, Go and Rust crashed after about 100 seconds while Java ran for the full 600 seconds. In Light, all three crashed at similar times (173--182s). KV had no crashes across the full run.
+The crashes surprised me. In Prime, Go and Rust both died after about 100 seconds while Java ran the full 600. In Light, all three crashed around the same time (173--182s). KV had zero crashes across the full run.
 
-The cause of the Prime and Light crashes was not investigated and remains unknown. It could be OS-level resource limits, framework behavior under extreme throughput, or something else entirely. I report this as an observed fact, not as evidence for any specific explanation. What is clear is that memory footprint did not predict stability: KV had the highest RSS values and was the most stable workload, while Prime had lower RSS but triggered the earliest crashes.
+I did not investigate the Prime and Light crashes -- it could be OS-level resource limits, something about how the frameworks behave under extreme throughput, or something else. I am just reporting what happened. One interesting detail: memory footprint did not predict stability at all. KV had the highest RSS and was the most stable, while Prime had lower RSS but crashed earliest.
 
 == What the data says about GC overhead
 
-The original expectation was that garbage-collected languages would show a measurable performance penalty. The data complicates that picture.
+Going into this, I expected garbage-collected languages to have a clear, measurable performance penalty. The data turned out to be more complicated than that.
 
-Go's telemetry shows 0.054ms average pauses at 0.4% reported GC time. In Light and KV, Go's throughput was indistinguishable from Rust's. In Prime, the gap was 5.4%. If garbage collection is imposing a throughput cost, it is small enough that framework efficiency and runtime characteristics dominate.
+Go's telemetry shows 0.054ms average pauses and only 0.4% of time spent on GC. In Light and KV, Go's throughput was indistinguishable from Rust's. In Prime there was a 5.4% gap. So if Go's GC is costing throughput, the cost is small enough that framework differences and runtime characteristics matter more.
 
-Java's G1GC paused for 3.2ms on average, but application throughput in Prime was 63% below Rust despite minimal allocation. Since Prime barely uses the heap, garbage collection is not what slowed Java down. The JVM runtime itself, with its object model overhead and safety mechanisms, appears to be the limiting factor in pure computation. But once the workload shifted to serialization or I/O, Java performed on par with the others.
+Java's G1GC paused for 3.2ms on average, but the throughput story is weird: Java was 63% slower than Rust in Prime even though Prime barely uses the heap. So GC is not what slowed Java down there. The JVM runtime itself -- object model overhead, safety mechanisms, JIT warm-up -- seems to be the limiting factor for pure computation. But once the workload involved serialization or I/O, Java caught up completely.
 
-The Go-Rust comparison is the cleaner test of GC overhead, since both are AOT-compiled and differ primarily in memory management strategy. The 5.4% Prime gap and near-zero Light/KV gap suggest the cost of Go's concurrent GC is small in these workloads. Go collects frequently (244 events vs. Java's 83) but each collection is so short (0.054ms) that the total time spent in GC is barely measurable. Java's G1GC takes longer per pause (3.2ms) but runs fewer collections, and the total overhead did not prevent Java from matching Go and Rust in serialization or I/O workloads. The two GC strategies reflect different design priorities, but neither one prevented competitive throughput.
+The Go-Rust comparison is probably the cleaner test of GC overhead since both are AOT-compiled and the main difference between them is memory management. The 5.4% gap in Prime and near-zero gap in Light/KV suggest Go's concurrent GC does not cost much in these workloads. Go runs collections more often (244 events vs. Java's 83) but each one is so short (0.054ms) that the total time in GC barely registers. Java's G1GC pauses longer (3.2ms each) but runs fewer collections, and the total overhead still did not stop Java from matching Go and Rust in the serialization and I/O workloads. The two GC designs have different priorities, but neither one prevented competitive throughput.
 
 == Methodological considerations
 
-Using production frameworks means these results capture ecosystem performance, not bare-language performance. Some observed differences may reflect framework maturity rather than language characteristics. For example, Java's competitive Light performance could reflect mature serialization libraries rather than language-level efficiency.
+Because I used production frameworks, these results show ecosystem performance rather than bare-language performance. Some of the differences I observed might be about framework maturity rather than anything inherent to the language. For instance, Java doing well in Light could just mean Jackson and WebFlux are really good serialization libraries, not that Java itself is fast at serialization.
 
-This is a deliberate trade-off. Developers choose technology stacks, and framework performance is inseparable from language performance in practice. That said, these results should be read as ecosystem comparisons. Testing with minimal implementations would isolate language-level differences more cleanly and would complement this work.
+I made this choice deliberately. Developers choose technology stacks, and in practice framework performance is inseparable from language performance. But these results should be read as ecosystem comparisons. Testing with minimal, framework-free implementations would give a cleaner picture of language-level differences and would be a good complement to this work.
 
 == Limitations
 
-Several limitations should be stated directly:
+I want to be upfront about what this study cannot tell you:
 
-- These results come from a single run per language-workload combination. Without repeated runs, there are no confidence intervals. The reported numbers are point observations, not population estimates, and could shift with repeated measurement.
+- I only did one run per language-workload combination. Without repeated runs, there are no confidence intervals. These are point observations that could shift if I ran everything again.
 
-- The measurements capture the combined effect of language runtime, framework, and memory management. Attributing performance differences to garbage collection specifically is not possible from this data alone.
+- The numbers reflect language runtime, framework, and memory management all mixed together. I cannot attribute any specific performance difference to garbage collection alone based on this data.
 
-- Go and Rust crashed during Prime (at ~102s) and Light (at ~180s). The stable windows are short, and the crash causes are unknown. Results for those workloads rest on limited observation periods.
+- Go and Rust crashed during Prime (at ~102s) and Light (at ~180s). The stable windows are short and I do not know why the crashes happened. The results for those workloads rest on limited observation time.
 
-- 10-minute runs may miss long-term GC effects like heap fragmentation or memory leaks that emerge over hours of operation.
+- 10-minute runs might miss longer-term GC effects like heap fragmentation or slow memory leaks that only show up after hours.
 
-- Workloads are synthetic. Production applications involve database calls, network I/O, and request diversity that these benchmarks do not capture.
+- These workloads are synthetic. Real production services make database calls, do network I/O, and handle diverse request types that my benchmarks do not cover.
 
-- Results come from a single cloud region (Aliyun Tokyo) and may not generalize to other hardware or providers.
+- Everything ran in one cloud region (Aliyun Tokyo). Different hardware or providers might give different results.
 
 = Conclusion
 
-This study compared Rust, Go, and Java HTTP services under compute-intensive, serialization, and allocation-heavy workloads on Aliyun cloud servers. GC telemetry from 244 Go collection events and 83 Java pause events was collected alongside per-second throughput, latency, and memory data.
+I compared Rust, Go, and Java HTTP services across compute-intensive, serialization, and allocation-heavy workloads on Aliyun cloud servers. I collected GC telemetry from 244 Go collection events and 83 Java pause events alongside per-second throughput, latency, and memory data.
 
-The main findings:
+Here is what I found:
 
-- Go and Rust performed within 5.4% of each other in Prime, and were indistinguishable in Light and KV. Go's collector paused for 0.054ms on average at 0.4% reported GC time. For these workloads, the cost of concurrent garbage collection was not visible in throughput.
+- Go and Rust were within 5.4% of each other in Prime, and basically identical in Light and KV. Go's collector paused for 0.054ms on average, spending 0.4% of total time on GC. For these workloads, concurrent garbage collection did not have a visible cost in throughput.
 
-- Java was 63% slower than Rust in Prime, a compute-heavy workload with minimal allocation. Since Java's G1GC operated efficiently (3.2ms average pauses), the throughput gap points to JVM runtime overhead rather than garbage collection.
+- Java was 63% slower than Rust in Prime, which is a compute-heavy workload with almost no heap allocation. Since Java's G1GC was pausing efficiently (3.2ms average), the gap seems to come from JVM runtime overhead, not garbage collection.
 
-- In Light (serialization), all three languages hit nearly identical throughput: 18,088--18,733 req/s. The large gap from Prime disappeared entirely.
+- In Light (serialization), all three languages hit nearly the same throughput: 18,088--18,733 req/s. The massive gap from Prime disappeared.
 
-- In KV (allocation-heavy), all three converged at ~7,900 req/s. The workload with the heaviest heap allocation produced no measurable throughput difference.
+- In KV (allocation-heavy), all three converged around 7,900 req/s. The workload that should have stressed GC the most produced no measurable throughput difference.
 
-- Go pauses were roughly 60× shorter than Java pauses (0.054ms vs. 3.2ms average), reflecting distinct design philosophies. Both produced acceptable latency for HTTP services.
+- Go pauses were about 60× shorter than Java pauses (0.054ms vs. 3.2ms average). They represent different design philosophies, but both produced acceptable latency for HTTP services.
 
-These are single-run observations from benchmarks using production frameworks. They measure ecosystem performance, not GC overhead in isolation. The data shows that for these specific workloads, garbage collection overhead was smaller than I expected going in. Whether that holds for other workload types, longer run times, or different frameworks is an open question.
+These are single-run observations using production frameworks. They measure ecosystem performance, not GC overhead by itself. For these specific workloads, garbage collection overhead was smaller than I expected going in. Whether that would hold for other workloads, longer runs, or different frameworks, I cannot say.
 
-Useful follow-up work would include longer benchmark runs (hours instead of minutes) to surface fragmentation and heap-growth effects, repeating the experiment to obtain confidence intervals, testing with minimal (non-framework) implementations to separate language-level from framework-level performance, and measuring energy consumption alongside throughput.
+Some follow-up work that would be useful: longer benchmark runs (hours, not minutes) to catch fragmentation and heap-growth effects, repeated runs for confidence intervals, testing without frameworks to isolate language-level performance, and measuring energy consumption alongside throughput.
 
 // Bibliography (excluded from word count by wordometer)
 #bibliography("references.bib", style: "ieee")
